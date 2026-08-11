@@ -1454,20 +1454,20 @@ describe("demo logic", () => {
     ].forEach((copy) => expect(appSource).not.toContain(copy));
   });
 
-  it("marks legacy score references as historical and unusable", () => {
-    const designQa = readFileSync(path.resolve(currentDir, "../design-qa.md"), "utf8");
-    const handoff = readFileSync(path.resolve(currentDir, "../../../HANDOFF.md"), "utf8");
-    const screenshotChecklist = readFileSync(
-      path.resolve(currentDir, "../docs/策划书_PPT拟用截图清单_2026-08-04_A.7.md"),
-      "utf8"
-    );
+  it("keeps legacy score references out of production and bans them in design guidance", () => {
+    const readme = readFileSync(path.resolve(currentDir, "../README.md"), "utf8");
+    const design = readFileSync(path.resolve(currentDir, "../DESIGN.md"), "utf8");
+    const productionSource = [
+      readFileSync(appPath, "utf8"),
+      readFileSync(path.resolve(currentDir, "./logic.js"), "utf8"),
+      readFileSync(path.resolve(currentDir, "./demoData.js"), "utf8")
+    ].join("\n");
 
-    expect(designQa).toContain("历史验收记录（已作废）");
-    expect(designQa).toContain("39→83 已由 A.7 禁用");
-    expect(handoff).toContain("以下内容为历史归档（禁止作为当前实现或展示依据）");
-    expect(handoff).toContain("39→83、32→91");
-    expect(screenshotChecklist).toContain("旧风险值截图及 39→83、32→91");
-    expect(screenshotChecklist).toContain("不得用于最终策划书、PPT、视频或答辩");
+    expect(productionSource).not.toContain("39→83");
+    expect(productionSource).not.toContain("32→91");
+    expect(readme).not.toContain("39→83");
+    expect(readme).not.toContain("32→91");
+    expect(design).toContain("页面不得展示 39→83、32→91 等历史分值");
   });
 
   it("allows completed capture views to be retaken before analysis", () => {
