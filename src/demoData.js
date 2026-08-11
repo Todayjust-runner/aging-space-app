@@ -1,10 +1,12 @@
+import { buildRescanSafetyComparison } from "./patentModel";
+
 export const coreEntrances = [
   {
     id: "scan",
     label: "扫描评估",
     shortLabel: "扫描",
-    title: "AI/AR 空间扫描",
-    description: "引导采集重点空间，生成可解释风险报告。"
+    title: "引导式空间采集",
+    description: "按关键视角采集，结合老人情况生成可解释的风险结果。"
   },
   {
     id: "mall",
@@ -18,7 +20,7 @@ export const coreEntrances = [
     label: "效果社区",
     shortLabel: "效果社区",
     title: "效果社区",
-    description: "查看真实改造分享、复扫案例和家庭提问。"
+    description: "查看改造经验、复扫案例和家庭提问。"
   }
 ];
 
@@ -44,6 +46,7 @@ export const productCategoryMap = {
 export const spaces = [
   {
     id: "bathroom",
+    registryStatus: "registered",
     name: "卫生间",
     scene: "湿区防跌倒",
     time: "约 4 分钟",
@@ -52,6 +55,7 @@ export const spaces = [
   },
   {
     id: "bedroom",
+    registryStatus: "registered",
     name: "卧室",
     scene: "起夜动线",
     time: "约 3 分钟",
@@ -60,6 +64,7 @@ export const spaces = [
   },
   {
     id: "corridor",
+    registryStatus: "registered",
     name: "过道/玄关",
     scene: "连续通行",
     time: "约 3 分钟",
@@ -68,6 +73,7 @@ export const spaces = [
   },
   {
     id: "kitchen",
+    registryStatus: "not_in_registry",
     name: "厨房",
     scene: "湿滑与取物",
     time: "约 4 分钟",
@@ -76,6 +82,7 @@ export const spaces = [
   },
   {
     id: "living",
+    registryStatus: "not_in_registry",
     name: "客厅",
     scene: "活动与会客",
     time: "约 3 分钟",
@@ -84,6 +91,7 @@ export const spaces = [
   },
   {
     id: "balcony",
+    registryStatus: "not_in_registry",
     name: "阳台/露台",
     scene: "晾晒与高差",
     time: "约 3 分钟",
@@ -261,6 +269,7 @@ export const riskRules = [
     evidence: ["湿区", "未识别到连续支撑点", "老人起身/转身动作频繁"],
     rule: "湿区活动 + 缺少可握持支撑 + 跌倒后果严重",
     action: "加装 L 型扶手或竖向扶手，并由人工确认墙体承重条件",
+    recommendedProductIds: ["grab_bar_l", "shower_chair", "layout_review"],
     requiresReview: true
   },
   {
@@ -272,6 +281,7 @@ export const riskRules = [
     evidence: ["湿区地面反光", "缺少防滑垫", "排水坡度需人工确认"],
     rule: "湿区地面 + 防滑措施不足 + 老年人步态稳定性下降",
     action: "补充防滑垫、防滑条或防滑涂层，复扫确认覆盖范围",
+    recommendedProductIds: ["anti_slip_mat", "anti_slip_coating", "anti_slip_strips"],
     requiresReview: false
   },
   {
@@ -283,6 +293,7 @@ export const riskRules = [
     evidence: ["入口高差明显", "需参考物或人工补录高度", "夜间通行频率较高"],
     rule: "高差点位 + 出入口动线 + 夜间识别能力下降",
     action: "采用坡化垫或缓坡处理，高差较大时进入人工复核",
+    recommendedProductIds: ["threshold_ramp", "anti_slip_strips", "layout_review"],
     requiresReview: true
   },
   {
@@ -294,6 +305,7 @@ export const riskRules = [
     evidence: ["床边通道被柜体压缩", "轮椅或助行器通过条件不足", "老人夜间起身频繁"],
     rule: "起身点 + 通行空间不足 + 夜间行动能力下降",
     action: "调整床柜布局，预留连续通道，必要时设置床边扶手",
+    recommendedProductIds: ["bed_rail", "sofa_assist", "vertical_bar", "layout_review"],
     requiresReview: true
   },
   {
@@ -305,6 +317,7 @@ export const riskRules = [
     evidence: ["床头到门口存在暗区", "开关距离床边较远", "未设置感应夜灯"],
     rule: "夜间动线 + 照明不足 + 老年视觉适应能力下降",
     action: "补充低眩光感应夜灯，优先覆盖床边、门口和卫生间方向",
+    recommendedProductIds: ["motion_night_light", "motion_light_bar"],
     requiresReview: false
   },
   {
@@ -316,6 +329,7 @@ export const riskRules = [
     evidence: ["动线旁存在尖角", "边角高度接近髋部或膝部", "缺少缓冲保护"],
     rule: "高频经过点 + 尖锐边角 + 老年反应速度下降",
     action: "增加圆角防撞条或调整家具位置",
+    recommendedProductIds: ["corner_guard"],
     requiresReview: false
   },
   {
@@ -327,6 +341,7 @@ export const riskRules = [
     evidence: ["鞋柜和临时物品占用通道", "助行器通过条件不足", "转角处余量不足"],
     rule: "连续通道 + 有效宽度不足 + 辅具通行需求",
     action: "清理临时堆放物，调整柜体占位，保留连续通行面",
+    recommendedProductIds: ["layout_review"],
     requiresReview: true
   },
   {
@@ -338,6 +353,7 @@ export const riskRules = [
     evidence: ["地面线缆外露", "鞋垫边缘翘起", "玄关换鞋动作频繁"],
     rule: "出入口高频动作 + 地面障碍物 + 下肢抬高能力下降",
     action: "固定线缆，移除翘边地垫，设置收纳区",
+    recommendedProductIds: ["cable_tray", "rug_grippers"],
     requiresReview: false
   },
   {
@@ -349,6 +365,7 @@ export const riskRules = [
     evidence: ["转角和玄关处亮度不足", "夜间回家或起夜通行频率高", "无自动感应灯"],
     rule: "连续动线 + 暗区 + 老年视觉适应延迟",
     action: "增设人体感应灯或低位灯带，避免强眩光",
+    recommendedProductIds: ["motion_night_light", "motion_light_bar"],
     requiresReview: false
   },
   {
@@ -360,6 +377,7 @@ export const riskRules = [
     evidence: ["水槽和灶台前为高频站立区", "地面可能有油水反光", "老人转身取物频繁"],
     rule: "湿滑地面 + 转身动作 + 下肢稳定性下降",
     action: "补充防滑垫或局部防滑处理，并保持水槽、灶台前连续防滑面",
+    recommendedProductIds: ["kitchen_mat", "anti_slip_coating"],
     requiresReview: false
   },
   {
@@ -371,6 +389,7 @@ export const riskRules = [
     evidence: ["常用物品位于高吊柜或低柜深处", "取物需要踮脚或弯腰", "重物移动时缺少支撑"],
     rule: "高处/低处取物 + 重心偏移 + 手部负重",
     action: "把常用物下移到胸腰高度，重物放在易拿取层，必要时由设计师校核收纳布局",
+    recommendedProductIds: ["layout_review"],
     requiresReview: true
   },
   {
@@ -382,6 +401,7 @@ export const riskRules = [
     evidence: ["冰箱门开启后压缩通道", "操作区临时堆物较多", "双手端物时转身余量不足"],
     rule: "狭窄通道 + 双手持物 + 转身动作",
     action: "整理操作台和地面堆放，保留连续转身空间，必要时调整冰箱开门方向",
+    recommendedProductIds: ["layout_review"],
     requiresReview: false
   },
   {
@@ -393,6 +413,7 @@ export const riskRules = [
     evidence: ["沙发坐深较深或过软", "旁侧缺少稳定扶手", "老人起身时需要借力"],
     rule: "低位坐姿 + 支撑不足 + 膝髋力量下降",
     action: "调整常坐位置，增加稳定扶手或选择更易起身的座椅",
+    recommendedProductIds: ["sofa_assist", "layout_review"],
     requiresReview: true
   },
   {
@@ -404,6 +425,7 @@ export const riskRules = [
     evidence: ["地毯边缘可能翘起", "茶几位于高频动线", "夜间经过时识别难度增加"],
     rule: "地面边缘 + 高频动线 + 夜间视觉下降",
     action: "固定地毯边缘，调整茶几位置或增加防撞保护",
+    recommendedProductIds: ["rug_grippers", "corner_guard"],
     requiresReview: false
   },
   {
@@ -415,6 +437,7 @@ export const riskRules = [
     evidence: ["沙发到卧室或卫生间方向光线不连续", "开关位置离常坐点较远", "夜间起身频率较高"],
     rule: "夜间动线 + 照明断点 + 老年视觉适应延迟",
     action: "补充低眩光感应灯，覆盖沙发旁、转角和门口位置",
+    recommendedProductIds: ["motion_night_light", "motion_light_bar"],
     requiresReview: false
   },
   {
@@ -426,6 +449,7 @@ export const riskRules = [
     evidence: ["推拉门轨道形成连续高差", "晾晒时双手持物", "雨天或洗衣后地面可能湿滑"],
     rule: "高差点位 + 双手持物 + 地面湿滑",
     action: "采用坡化垫或轨道缓坡处理，高差较大时进入人工复核",
+    recommendedProductIds: ["threshold_ramp", "anti_slip_strips", "layout_review"],
     requiresReview: true
   },
   {
@@ -437,6 +461,7 @@ export const riskRules = [
     evidence: ["洗衣机和排水口周边可能积水", "地面材质反光", "晾晒区站立频率高"],
     rule: "积水区域 + 晾晒动作 + 防滑不足",
     action: "补充防滑垫或局部防滑处理，保持排水口周边干燥通畅",
+    recommendedProductIds: ["anti_slip_coating", "anti_slip_strips"],
     requiresReview: false
   },
   {
@@ -448,6 +473,7 @@ export const riskRules = [
     evidence: ["晾衣杆高度偏高", "取物时身体前倾", "旁侧缺少稳定支撑点"],
     rule: "高处取物 + 重心前移 + 支撑不足",
     action: "降低常用晾晒高度，设置可升降晾衣杆或稳定支撑点",
+    recommendedProductIds: ["layout_review"],
     requiresReview: true
   }
 ];
@@ -469,7 +495,8 @@ export const products = [
     budgetMin: 150,
     budgetMax: 320,
     condition: "需确认墙体承重和安装高度",
-    review: "需人工复核"
+    review: "需人工复核",
+    requiresReview: true
   },
   {
     id: "vertical_bar",
@@ -487,7 +514,8 @@ export const products = [
     budgetMin: 120,
     budgetMax: 260,
     condition: "适用于坐便器侧墙或床边起身点",
-    review: "需人工复核"
+    review: "需人工复核",
+    requiresReview: true
   },
   {
     id: "anti_slip_mat",
@@ -505,7 +533,8 @@ export const products = [
     budgetMin: 40,
     budgetMax: 120,
     condition: "需覆盖淋浴区主要站立面",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "anti_slip_coating",
@@ -523,7 +552,8 @@ export const products = [
     budgetMin: 300,
     budgetMax: 800,
     condition: "适用于淋浴区、坐便区等湿滑点位",
-    review: "建议复核"
+    review: "建议复核",
+    requiresReview: true
   },
   {
     id: "threshold_ramp",
@@ -541,7 +571,8 @@ export const products = [
     budgetMin: 60,
     budgetMax: 220,
     condition: "需补录门槛高度和宽度",
-    review: "高差较大需复核"
+    review: "高差较大需复核",
+    requiresReview: true
   },
   {
     id: "motion_night_light",
@@ -559,7 +590,8 @@ export const products = [
     budgetMin: 30,
     budgetMax: 100,
     condition: "优先布置在床边、门口、转角",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "bed_rail",
@@ -577,7 +609,8 @@ export const products = [
     budgetMin: 180,
     budgetMax: 480,
     condition: "需确认床体结构和老人起身方向",
-    review: "需人工复核"
+    review: "需人工复核",
+    requiresReview: true
   },
   {
     id: "corner_guard",
@@ -595,7 +628,8 @@ export const products = [
     budgetMin: 15,
     budgetMax: 60,
     condition: "覆盖高频经过点的柜角、桌角",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "cable_tray",
@@ -613,7 +647,8 @@ export const products = [
     budgetMin: 20,
     budgetMax: 80,
     condition: "固定充电线、插排和临时线缆",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "folding_grab_bar",
@@ -631,7 +666,8 @@ export const products = [
     budgetMin: 260,
     budgetMax: 620,
     condition: "需确认坐便器侧墙承重及展开空间",
-    review: "需人工复核"
+    review: "需人工复核",
+    requiresReview: true
   },
   {
     id: "shower_chair",
@@ -648,8 +684,9 @@ export const products = [
     riskIds: ["no_shower_grab_bar", "slippery_floor"],
     budgetMin: 220,
     budgetMax: 520,
-    condition: "需确认淋浴区净宽和地面平整度",
-    review: "建议复核"
+    condition: "需核对淋浴区宽度与地面平整",
+    review: "建议复核",
+    requiresReview: true
   },
   {
     id: "toilet_frame",
@@ -667,7 +704,8 @@ export const products = [
     budgetMin: 180,
     budgetMax: 390,
     condition: "需确认坐便器两侧宽度和地面净空",
-    review: "建议复核"
+    review: "建议复核",
+    requiresReview: true
   },
   {
     id: "transfer_bench",
@@ -685,7 +723,8 @@ export const products = [
     budgetMin: 420,
     budgetMax: 880,
     condition: "适用于有浴缸边沿或固定高差的洗浴空间",
-    review: "需人工复核"
+    review: "需人工复核",
+    requiresReview: true
   },
   {
     id: "raised_toilet_seat",
@@ -703,7 +742,8 @@ export const products = [
     budgetMin: 120,
     budgetMax: 320,
     condition: "需确认坐便器形状、宽度和原座圈结构",
-    review: "建议复核"
+    review: "建议复核",
+    requiresReview: true
   },
   {
     id: "sofa_assist",
@@ -721,7 +761,8 @@ export const products = [
     budgetMin: 260,
     budgetMax: 560,
     condition: "需确认沙发或床沿高度及底部插入空间",
-    review: "建议复核"
+    review: "建议复核",
+    requiresReview: true
   },
   {
     id: "anti_slip_strips",
@@ -739,7 +780,8 @@ export const products = [
     budgetMin: 25,
     budgetMax: 75,
     condition: "贴装前需清洁并干燥地面，避免覆盖排水路径",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "motion_light_bar",
@@ -757,7 +799,8 @@ export const products = [
     budgetMin: 79,
     budgetMax: 199,
     condition: "建议沿连续动线布置，避免正对眼睛安装",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "rug_grippers",
@@ -775,7 +818,8 @@ export const products = [
     budgetMin: 28,
     budgetMax: 88,
     condition: "适用于木地板、瓷砖等平整硬质地面",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "kitchen_mat",
@@ -793,7 +837,312 @@ export const products = [
     budgetMin: 89,
     budgetMax: 239,
     condition: "需避免遮挡橱柜开门、排水口和转身通道",
-    review: "无需复核"
+    review: "无需复核",
+    requiresReview: false
+  },
+  {
+    id: "folding_shower_seat",
+    name: "壁挂折叠洗澡椅",
+    category: "支撑辅助",
+    subtitle: "不用时贴墙收起，为小户型淋浴区提供坐姿洗浴支撑",
+    imageUrl: "/assets/products/folding-shower-seat.webp",
+    shop: "长者卫浴辅具馆",
+    rating: 4.7,
+    reviews: 168,
+    sales: 620,
+    specs: ["壁挂翻折", "排水坐面", "节省空间"],
+    guarantees: ["墙体测量", "承重安装", "安装复核"],
+    riskIds: ["no_shower_grab_bar", "slippery_floor"],
+    budgetMin: 380,
+    budgetMax: 980,
+    condition: "需确认墙体承重、坐面高度和展开后的淋浴净空",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "bedside_night_rail",
+    name: "床边起身护栏",
+    category: "支撑辅助",
+    subtitle: "落地底座配合床侧握把，兼顾起身借力和床边收纳",
+    imageUrl: "/assets/products/bedside-night-rail.webp",
+    shop: "卧室适老辅具馆",
+    rating: 4.6,
+    reviews: 239,
+    sales: 910,
+    specs: ["落地支撑", "软质握把", "床侧收纳袋"],
+    guarantees: ["床高适配", "装配指导", "承重确认"],
+    riskIds: ["bedside_clearance", "night_lighting"],
+    budgetMin: 220,
+    budgetMax: 520,
+    condition: "需确认床沿高度、床下空间和老人下床方向",
+    review: "建议复核",
+    requiresReview: true
+  },
+  {
+    id: "bathroom_support_handle",
+    name: "组合式浴室扶手",
+    category: "支撑辅助",
+    subtitle: "直杆、转角和连续扶手组合，覆盖淋浴入口与转身点位",
+    imageUrl: "/assets/products/bathroom-support-handle.webp",
+    shop: "安心适老卫浴馆",
+    rating: 4.8,
+    reviews: 312,
+    sales: 1280,
+    specs: ["多形态组合", "防滑握面", "高对比配色"],
+    guarantees: ["点位测量", "承重安装", "安装复拍"],
+    riskIds: ["no_shower_grab_bar"],
+    budgetMin: 160,
+    budgetMax: 680,
+    condition: "按老人站立、转身和坐下动作确定形态与安装点位",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "toilet_safety_rail",
+    name: "落地坐便环绕扶手",
+    category: "支撑辅助",
+    subtitle: "墙地双固定结构包围坐便区，为坐下和起身提供连续握持",
+    imageUrl: "/assets/products/toilet-safety-rail.webp",
+    shop: "居家起身辅助馆",
+    rating: 4.7,
+    reviews: 146,
+    sales: 540,
+    specs: ["双侧握持", "落地固定", "醒目配色"],
+    guarantees: ["空间测量", "固定点复核", "安装验收"],
+    riskIds: ["no_shower_grab_bar", "sofa_stand_support"],
+    budgetMin: 520,
+    budgetMax: 1280,
+    condition: "需确认坐便器两侧宽度、地面钻孔条件和老人惯用侧",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "wall_mounted_shower_seat",
+    name: "墙装翻折沐浴凳",
+    category: "支撑辅助",
+    subtitle: "小尺寸翻折坐面适合窄淋浴区，减少长时间站立负担",
+    imageUrl: "/assets/products/wall-mounted-shower-seat.webp",
+    shop: "无障碍卫浴优选",
+    rating: 4.6,
+    reviews: 124,
+    sales: 430,
+    specs: ["紧凑坐面", "翻折收纳", "防水材质"],
+    guarantees: ["尺寸确认", "墙体复核", "安装质保"],
+    riskIds: ["slippery_floor", "no_shower_grab_bar"],
+    budgetMin: 320,
+    budgetMax: 760,
+    condition: "适用于空间较窄且墙体具备可靠固定条件的淋浴区",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "tpe_bath_mat",
+    name: "TPE 排水防滑垫",
+    category: "地面防滑",
+    subtitle: "密集排水孔和颗粒脚感适合淋浴区、洗手台前等湿区",
+    imageUrl: "/assets/products/tpe-bath-mat.webp",
+    shop: "居家安全适老馆",
+    rating: 4.5,
+    reviews: 806,
+    sales: 5620,
+    specs: ["快速排水", "颗粒防滑", "可裁剪"],
+    guarantees: ["尺寸建议", "坏损补发", "清洁说明"],
+    riskIds: ["slippery_floor", "kitchen_slippery_floor", "balcony_wet_floor"],
+    budgetMin: 35,
+    budgetMax: 110,
+    condition: "需铺在平整地面并定期抬起清洁，避免堵塞排水口",
+    review: "无需复核",
+    requiresReview: false
+  },
+  {
+    id: "multi_angle_grab_bar",
+    name: "上翻落地支撑扶手",
+    category: "支撑辅助",
+    subtitle: "墙面固定配合落地支腿，适合坐便器侧面和护理转移点",
+    imageUrl: "/assets/products/multi-angle-grab-bar.webp",
+    shop: "安心适老辅具馆",
+    rating: 4.8,
+    reviews: 205,
+    sales: 780,
+    specs: ["上翻收纳", "落地支腿", "双重固定"],
+    guarantees: ["承重确认", "安装复核", "一年质保"],
+    riskIds: ["no_shower_grab_bar", "sofa_stand_support"],
+    budgetMin: 360,
+    budgetMax: 820,
+    condition: "需确认侧墙承重、地面固定条件和扶手展开范围",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "straight_safety_rail",
+    name: "一字型高对比扶手",
+    category: "支撑辅助",
+    subtitle: "醒目直杆用于淋浴入口、过道转角和阳台门侧辅助握持",
+    imageUrl: "/assets/products/straight-safety-rail.webp",
+    shop: "无障碍通行改造馆",
+    rating: 4.7,
+    reviews: 358,
+    sales: 1760,
+    specs: ["多长度可选", "高对比识别", "防滑握杆"],
+    guarantees: ["点位建议", "承重安装", "安装复拍"],
+    riskIds: ["no_shower_grab_bar", "balcony_reach_risk"],
+    budgetMin: 130,
+    budgetMax: 360,
+    condition: "需根据实际握持方向确定横装、竖装和离地高度",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "no_drill_toilet_rail",
+    name: "免打孔坐便安全架",
+    category: "支撑辅助",
+    subtitle: "独立框架跨坐便器安装，不改动墙面即可获得双侧支撑",
+    imageUrl: "/assets/products/no-drill-toilet-rail.webp",
+    shop: "康养起居辅具馆",
+    rating: 4.6,
+    reviews: 276,
+    sales: 1020,
+    specs: ["宽高可调", "免墙面打孔", "防滑脚套"],
+    guarantees: ["型号适配", "装配指导", "七天可退"],
+    riskIds: ["no_shower_grab_bar", "sofa_stand_support"],
+    budgetMin: 210,
+    budgetMax: 480,
+    condition: "需核对坐便器宽度、两侧净空和地面平整度",
+    review: "建议复核",
+    requiresReview: true
+  },
+  {
+    id: "floor_bed_assist_rail",
+    name: "落地床边起身围栏",
+    category: "支撑辅助",
+    subtitle: "床侧长底座和双握位结构，适合起身缓慢或夜间需照护人群",
+    imageUrl: "/assets/products/floor-bed-assist-rail.webp",
+    shop: "卧室适老辅具馆",
+    rating: 4.7,
+    reviews: 188,
+    sales: 640,
+    specs: ["落地支撑", "双握位", "高度可调"],
+    guarantees: ["床型确认", "承重建议", "装配指导"],
+    riskIds: ["bedside_clearance", "sofa_stand_support"],
+    budgetMin: 280,
+    budgetMax: 620,
+    condition: "需确认床侧通道宽度、床下结构和照护者操作空间",
+    review: "建议复核",
+    requiresReview: true
+  },
+  {
+    id: "mobile_transfer_chair",
+    name: "移动坐便转移椅",
+    category: "无障碍通行",
+    subtitle: "带轮底座和可开合坐面，用于卧室到卫生间的短距离护理转移",
+    imageUrl: "/assets/products/rise-assist-chair.webp",
+    shop: "居家照护辅具馆",
+    rating: 4.6,
+    reviews: 92,
+    sales: 310,
+    specs: ["脚轮制动", "开合坐面", "扶手支撑"],
+    guarantees: ["照护评估", "尺寸确认", "使用指导"],
+    riskIds: ["bedside_clearance", "corridor_width", "threshold_height"],
+    budgetMin: 980,
+    budgetMax: 2380,
+    condition: "需人工确认使用者状态、照护能力、门宽和门槛高差",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "folding_bathroom_rail",
+    name: "折叠式浴室横扶手",
+    category: "支撑辅助",
+    subtitle: "细长横杆适合洗手台侧和淋浴入口，不用时可贴墙收起",
+    imageUrl: "/assets/products/folding-bathroom-rail.webp",
+    shop: "安心适老卫浴馆",
+    rating: 4.7,
+    reviews: 134,
+    sales: 470,
+    specs: ["横向握持", "折叠收纳", "金属固定座"],
+    guarantees: ["点位测量", "墙体复核", "安装质保"],
+    riskIds: ["no_shower_grab_bar", "balcony_reach_risk"],
+    budgetMin: 240,
+    budgetMax: 580,
+    condition: "需按实际动作路径确认安装高度和展开方向",
+    review: "需人工复核",
+    requiresReview: true
+  },
+  {
+    id: "corridor_sensor_light",
+    name: "走廊感应夜灯",
+    category: "照明改善",
+    subtitle: "安装在走廊或门侧的低眩光感应夜灯，夜间经过自动亮起",
+    imageUrl: "/assets/products/corridor-sensor-light.jpg",
+    shop: "起夜照明优选",
+    rating: 4.8,
+    reviews: 184,
+    sales: 820,
+    specs: ["人体与光线感应", "暖色低位照明", "免布线"],
+    guarantees: ["点位建议", "一年质保", "安装指导"],
+    riskIds: ["night_lighting", "corridor_light"],
+    budgetMin: 120,
+    budgetMax: 260,
+    condition: "建议布置在床边到卫生间的转角或走廊低位，避免正对视线",
+    review: "无需复核",
+    requiresReview: false
+  },
+  {
+    id: "usb_sensor_light",
+    name: "磁吸感应小夜灯",
+    category: "照明改善",
+    subtitle: "圆形灯体可磁吸拆取并调整照射角度，适合床侧与玄关补光",
+    imageUrl: "/assets/products/magnetic-sensor-night-light.jpg",
+    shop: "起夜照明优选",
+    rating: 4.6,
+    reviews: 426,
+    sales: 2780,
+    specs: ["人体与光线感应", "磁吸拆取", "角度可调"],
+    guarantees: ["免布线", "位置建议", "一年质保"],
+    riskIds: ["night_lighting", "corridor_light", "living_light_gap"],
+    budgetMin: 35,
+    budgetMax: 90,
+    condition: "适合临时补充暗区照明，安装时避免灯面直射床位",
+    review: "无需复核",
+    requiresReview: false
+  },
+  {
+    id: "slim_motion_light",
+    name: "床边低位感应夜灯",
+    category: "照明改善",
+    subtitle: "布置在床边低位，起夜落脚时自动提供柔和照明",
+    imageUrl: "/assets/products/bedside-sensor-night-light.jpg",
+    shop: "居家感应照明馆",
+    rating: 4.7,
+    reviews: 612,
+    sales: 3560,
+    specs: ["低位感应", "暖色柔光", "磁吸拆取"],
+    guarantees: ["点位建议", "免布线", "一年质保"],
+    riskIds: ["night_lighting", "corridor_light", "living_light_gap"],
+    budgetMin: 60,
+    budgetMax: 180,
+    condition: "优先安装在下床侧和连续动线一侧，避免灯光直射眼睛",
+    review: "无需复核",
+    requiresReview: false
+  },
+  {
+    id: "clip_sensor_light",
+    name: "柜内感应夜灯",
+    category: "照明改善",
+    subtitle: "磁吸安装在衣柜或收纳柜内，开柜取物时补充柔和照明",
+    imageUrl: "/assets/products/wardrobe-sensor-night-light.jpg",
+    shop: "居家感应照明馆",
+    rating: 4.5,
+    reviews: 158,
+    sales: 690,
+    specs: ["人体与光线感应", "磁吸安装", "角度可调"],
+    guarantees: ["点位建议", "安装指导", "一年质保"],
+    riskIds: ["corridor_light", "living_light_gap"],
+    budgetMin: 80,
+    budgetMax: 220,
+    condition: "适合柜内和低频补光位置，不替代连续通行照明",
+    review: "无需复核",
+    requiresReview: false
   },
   {
     id: "layout_review",
@@ -820,7 +1169,8 @@ export const products = [
     budgetMin: 199,
     budgetMax: 599,
     condition: "适用于涉及施工、安全安装或空间重排的风险项",
-    review: "人工服务"
+    review: "人工服务",
+    requiresReview: true
   }
 ];
 
@@ -829,8 +1179,9 @@ export const sampleCases = [
     id: "case_bathroom_001",
     space: "bathroom",
     title: "独居老人卫生间湿区评估",
-    beforeRisk: 39,
-    afterRisk: 83,
+    comparisonVerified: true,
+    comparisonImage: "/assets/community/bathroom-before-after-real.jpg",
+    comparisonAlt: "同一住宅卫生间适老化改造前后实景对比",
     actions: ["加装 L 型扶手", "铺设防滑垫", "门槛坡化处理"],
     feedback: "老人夜间洗漱时更容易抓握支撑点，子女认为改造优先级清晰。",
     status: "复扫完成"
@@ -839,51 +1190,46 @@ export const sampleCases = [
     id: "case_bedroom_001",
     space: "bedroom",
     title: "卧室起夜动线优化",
-    beforeRisk: 55,
-    afterRisk: 89,
+    comparisonVerified: false,
     actions: ["补充感应夜灯", "调整床头柜位置", "加装床边扶手"],
-    feedback: "复扫后暗区减少，床边通道更连续。",
-    status: "待人工抽检"
+    feedback: "完成同空间复扫后记录暗区与床边通道变化。",
+    status: "待同空间复扫"
   },
   {
     id: "case_corridor_001",
     space: "corridor",
     title: "玄关绊倒风险整理",
-    beforeRisk: 51,
-    afterRisk: 84,
+    comparisonVerified: false,
     actions: ["固定线缆", "移除翘边地垫", "安装感应灯"],
-    feedback: "出入口通行更顺畅，老人回家换鞋动作更安全。",
-    status: "复扫完成"
+    feedback: "完成同空间复扫后记录出入口通行变化。",
+    status: "待同空间复扫"
   },
   {
     id: "case_kitchen_001",
     space: "kitchen",
     title: "厨房操作区防滑与收纳调整",
-    beforeRisk: 51,
-    afterRisk: 87,
+    comparisonVerified: false,
     actions: ["铺设防滑垫", "常用物下移", "整理操作台通道"],
-    feedback: "老人做饭时转身更顺，常用锅具不用再踮脚拿取。",
-    status: "待人工抽检"
+    feedback: "完成同空间复扫后记录转身与取物变化。",
+    status: "待同空间复扫"
   },
   {
     id: "case_living_001",
     space: "living",
     title: "客厅沙发起身和地毯绊倒点优化",
-    beforeRisk: 51,
-    afterRisk: 85,
+    comparisonVerified: false,
     actions: ["固定地毯边缘", "加装起身扶手", "补充感应夜灯"],
-    feedback: "沙发旁起身更稳定，夜间从客厅回卧室的暗区减少。",
-    status: "复扫完成"
+    feedback: "完成同空间复扫后记录起身与夜间动线变化。",
+    status: "待同空间复扫"
   },
   {
     id: "case_balcony_001",
     space: "balcony",
     title: "阳台门槛和晾晒动线处理",
-    beforeRisk: 47,
-    afterRisk: 84,
+    comparisonVerified: false,
     actions: ["门槛坡化处理", "补充防滑垫", "降低晾晒高度"],
-    feedback: "晾晒衣物时不用跨高门槛，也减少了地面积水带来的滑倒风险。",
-    status: "待人工复核"
+    feedback: "完成同空间复扫后记录门槛与晾晒动线变化。",
+    status: "待同空间复扫"
   }
 ];
 
@@ -894,6 +1240,60 @@ export const communityTopics = [
   { id: "share", label: "经验分享" },
   { id: "service", label: "服务评价" }
 ];
+
+const publishedRescanState = {
+  resultState: "published",
+  traceIntegrityState: "valid",
+  evidenceState: "complete"
+};
+
+const bathroomRescanComparison = buildRescanSafetyComparison({
+  spaceId: "bathroom",
+  profile: {
+    mobility: "使用手杖",
+    vision: "弱光下视物困难",
+    balance: "平衡能力受限",
+    fallHistory: "有跌倒经历",
+    night: "起夜频繁",
+    spaceUseFrequency: "4 次/日"
+  },
+  before: {
+    ...publishedRescanState,
+    floorWet: true,
+    thresholdHeightMm: 22,
+    routeWidthMm: 760
+  },
+  after: {
+    ...publishedRescanState,
+    floorWet: false,
+    thresholdHeightMm: 22,
+    routeWidthMm: 760
+  }
+});
+
+const bathroomSupportRescanComparison = buildRescanSafetyComparison({
+  spaceId: "bathroom",
+  profile: {
+    mobility: "使用手杖",
+    vision: "日常视物正常",
+    balance: "平衡能力受限",
+    fallHistory: "未报告跌倒",
+    night: "偶尔起夜",
+    spaceUseFrequency: "6 次/日"
+  },
+  before: {
+    ...publishedRescanState,
+    floorWet: true,
+    thresholdHeightMm: 24,
+    routeWidthMm: 780
+  },
+  after: {
+    ...publishedRescanState,
+    floorWet: false,
+    thresholdHeightMm: 10,
+    routeWidthMm: 820
+  }
+});
 
 export const communityPosts = [
   {
@@ -906,18 +1306,43 @@ export const communityPosts = [
     location: "西安 · 老旧小区",
     badge: "复扫案例",
     images: [
-      "/assets/community/bathroom-accessible.jpg",
-      "/assets/community/bathroom-care.jpg"
+      "/assets/community/bathroom-before-after-real.jpg"
     ],
-    imageAlts: ["施工人员在卫生间安装多功能扶手", "中国老人在改造完成的卫生间为扶手点赞"],
-    title: "上门复核后重新定位，卫生间扶手终于装对了",
-    content: "线上报告先发现湿滑和起身风险，上门复核老人常用动作与墙体条件后，重新确定扶手位置。完成扶手和防滑处理后复扫，安全分从 39 分升到 83 分。",
+    imageAlts: ["同一住宅卫生间改造前后实景对比"],
+    imageFits: ["contain"],
+    imageAspects: ["8 / 9"],
+    title: "卫生间改造前后对照，先解决湿滑和起身支撑",
+    content: "线上报告先发现湿滑和起身风险，上门复核常用动作、墙体条件和设备位置后，再确定防滑处理与扶手点位。施工完成后按同一空间重新采集，具体变化以新的评估结果为准。",
     actions: ["多功能扶手", "墙体复核", "湿区防滑"],
-    beforeRisk: 39,
-    afterRisk: 83,
+    rescanStatus: "复扫完成",
+    safetyComparison: bathroomRescanComparison,
     likes: 128,
     comments: 26,
     saves: 18
+  },
+  {
+    id: "post_bathroom_support_rescan",
+    topic: "case",
+    space: "bathroom",
+    publishedAt: "2026-07-16T17:35:00+08:00",
+    author: "李阿姨家属",
+    role: "子女用户",
+    location: "天津 · 老旧小区",
+    badge: "复扫案例",
+    images: [
+      "/assets/community/bathroom-accessible.jpg",
+      "/assets/community/bathroom-care.jpg"
+    ],
+    imageAlts: ["安装人员在卫生间调试适老扶手", "老人完成卫生间扶手使用复核"],
+    imageAspects: ["16 / 9", "16 / 9"],
+    title: "湿区处理和扶手安装后，按原路径完成复扫",
+    content: "施工后重新采集地面状态、门槛高度和通行净宽，并让老人按日常路线完成进出与借力动作。复扫结果由同一套风险计算规则重新生成。",
+    actions: ["湿区防滑", "门槛处理", "扶手复核"],
+    rescanStatus: "复扫完成",
+    safetyComparison: bathroomSupportRescanComparison,
+    likes: 104,
+    comments: 22,
+    saves: 36
   },
   {
     id: "post_bedroom_light",
@@ -925,7 +1350,7 @@ export const communityPosts = [
     space: "bedroom",
     publishedAt: "2026-07-16T20:42:00+08:00",
     author: "适老设计师小周",
-    role: "认证设计师",
+    role: "适老设计师",
     location: "福州 · 居家改造",
     badge: "经验分享",
     images: [
@@ -936,8 +1361,7 @@ export const communityPosts = [
     title: "夜间起身不能只加亮，床边支撑也要一起评估",
     content: "卧室到卫生间之间用低位感应灯连续覆盖，避免强光直射；床边再结合老人起身动作配置支撑扶手，照明和借力点需要作为一条完整动线评估。",
     actions: ["感应夜灯", "床边扶手", "连续动线"],
-    beforeRisk: 55,
-    afterRisk: 89,
+    rescanStatus: "复扫完成",
     likes: 96,
     comments: 14,
     saves: 31
@@ -957,8 +1381,6 @@ export const communityPosts = [
     title: "轮椅和手杖交替使用，应该按哪种状态评估？",
     content: "家里老人状态好时用手杖，体力不足时换轮椅。两种辅助器具对通行净宽、转身位置和借力点要求不同，扫描时是否需要分别采集两组动作？",
     actions: ["轮椅通行", "手杖借力", "双状态评估"],
-    beforeRisk: 39,
-    afterRisk: null,
     likes: 42,
     comments: 19,
     saves: 7
@@ -974,31 +1396,29 @@ export const communityPosts = [
     badge: "服务评价",
     images: ["/assets/community/corridor-floor.jpg"],
     imageAlts: ["老人使用助行器通过室内狭窄通道"],
-    title: "上门筛查 32 户，通道净宽不足是高频问题",
+    title: "入户筛查中，通道净宽不足需要重点复核",
     content: "过道和玄关不仅要看线缆，还要实测助行器经过时的净宽。先清理临时堆物、固定地垫边缘，再判断是否需要调整柜体或门扇开启方向。",
     actions: ["线缆固定", "地垫移除", "玄关收纳"],
-    beforeRisk: 51,
-    afterRisk: 84,
+    rescanStatus: "复扫完成",
     likes: 154,
     comments: 32,
     saves: 45
   },
   {
     id: "post_kitchen_mat",
-    topic: "case",
+    topic: "share",
     space: "kitchen",
     publishedAt: "2026-07-14T11:26:00+08:00",
     author: "周叔叔",
     role: "家庭用户",
     location: "漳州 · 商品房",
-    badge: "复扫案例",
-    images: ["/assets/community/kitchen-senior.jpg"],
-    imageAlts: ["老人使用助行器在现代厨房做饭"],
+    badge: "经验分享",
+    images: ["/assets/community/kitchen-chinese-home.jpg"],
+    imageAlts: ["上海居民完成适老化改造后的家庭厨房操作区"],
     title: "厨房不是铺块垫子就够了，转身空间也要一起看",
     content: "我们把常用锅具移到腰部高度，清掉操作台旁的临时凳子，并重新检查助行器转身位置。复扫时地面风险和高处取物风险都下降了。",
     actions: ["常用物下移", "清理转身区", "防滑处理"],
-    beforeRisk: 51,
-    afterRisk: 87,
+    rescanStatus: "复扫完成",
     likes: 87,
     comments: 18,
     saves: 29
@@ -1009,7 +1429,7 @@ export const communityPosts = [
     space: "living",
     publishedAt: "2026-07-13T19:54:00+08:00",
     author: "照护师阿宁",
-    role: "认证照护师",
+    role: "居家照护师",
     location: "厦门 · 入户指导",
     badge: "经验分享",
     images: ["/assets/community/living-room-senior.jpg"],
@@ -1017,8 +1437,7 @@ export const communityPosts = [
     title: "常坐木椅起身费力，先看坐高和扶手位置",
     content: "老人常坐的位置过低、缺少可抓握扶手时，起身会明显费力。先测坐高并观察手杖使用习惯，再决定增加起身扶手还是更换座椅。",
     actions: ["测量坐高", "评估扶手", "手杖借力"],
-    beforeRisk: 51,
-    afterRisk: 85,
+    rescanStatus: "复扫完成",
     likes: 113,
     comments: 21,
     saves: 48
@@ -1037,8 +1456,6 @@ export const communityPosts = [
     title: "阳台推拉门保留后，怎么让老人跨门槛更稳？",
     content: "家里阳台视野很好，老人每天都会去晒太阳。现在最担心推拉门轨道和下雨后的地面，准备补拍门槛侧面和排水口，请大家帮忙看看先处理哪一项。",
     actions: ["门槛侧拍", "排水检查", "人工复核"],
-    beforeRisk: 47,
-    afterRisk: null,
     likes: 62,
     comments: 24,
     saves: 11
@@ -1049,19 +1466,18 @@ export const communityPosts = [
     space: "living",
     publishedAt: "2026-07-10T16:12:00+08:00",
     author: "鹭岛适老服务站",
-    role: "认证服务方",
+    role: "适老服务方",
     location: "厦门 · 上门评估",
     badge: "服务评价",
     images: [
-      "/assets/community/home-consultation.jpg",
-      "/assets/community/home-measurement.jpg"
+      "/assets/community/home-assessment-china-1.jpg",
+      "/assets/community/home-assessment-china-2.png"
     ],
-    imageAlts: ["顾问与老年夫妻在家中沟通方案", "照护人员协助老人完成起身动作"],
+    imageAlts: ["中山社工在老人家中开展能力评估", "上海社区工作人员入户与老人核对改造需求"],
     title: "线上报告之后，上门复核主要核对这三件事",
     content: "服务人员会结合老人真实动作，复核墙体承重、通道尺寸和日常照护方式。系统先给出优先级，现场再确认能不能装、装在哪里、是否影响其他家人使用。",
     actions: ["动作观察", "尺寸复核", "施工条件确认"],
-    beforeRisk: 46,
-    afterRisk: 82,
+    rescanStatus: "复扫完成",
     likes: 176,
     comments: 37,
     saves: 54
@@ -1076,15 +1492,13 @@ export const communityPosts = [
     location: "泉州 · 一层住宅",
     badge: "改造提问",
     images: [
-      "/assets/community/rollator-home.jpg",
-      "/assets/community/doorway-rollator.jpg"
+      "/assets/community/doorway-home-visit-1.jpg",
+      "/assets/community/doorway-home-visit-2.jpg"
     ],
-    imageAlts: ["老人使用助行器在家中移动", "老人推助行器经过入户门区域"],
-    title: "助行器在家里能转身，但经过门口总是卡住",
-    content: "客厅内部空间够用，问题集中在玄关地垫和门扇开启后的净宽。我已经按引导补拍门口正面和侧面，希望确认是先换地垫还是需要调整门吸位置。",
-    actions: ["补拍门口", "测量净宽", "检查地垫"],
-    beforeRisk: 44,
-    afterRisk: null,
+    imageAlts: ["江门社工入户与老人了解日常通行情况", "社工在老人住宅门口核查出入口条件"],
+    title: "入户评估时发现，门口通行问题不能只看净宽",
+    content: "老人平时使用手杖，门口还堆放着临时物品。工作人员上门后同时检查门扇开启、地面高差和常用通行路线，并按引导补拍门口正面与侧面。",
+    actions: ["入户观察", "补拍门口", "测量净宽"],
     likes: 71,
     comments: 28,
     saves: 16
@@ -1095,7 +1509,7 @@ export const communityPosts = [
     space: "bathroom",
     publishedAt: "2026-07-06T14:09:00+08:00",
     author: "安心到家安装组",
-    role: "认证服务方",
+    role: "适老服务方",
     location: "莆田 · 老房改造",
     badge: "服务评价",
     images: ["/assets/community/bathroom-caregiver.jpg"],
@@ -1103,8 +1517,7 @@ export const communityPosts = [
     title: "洗漱需要照护时，先把操作空间留出来",
     content: "这户家庭原本只关注防滑，现场观察后发现照护者站位也很局促。最终把收纳移出湿区、保留洗漱协助空间，并在承重墙位置增加支撑扶手。",
     actions: ["清理湿区收纳", "保留照护站位", "扶手承重复核"],
-    beforeRisk: 42,
-    afterRisk: 86,
+    rescanStatus: "复扫完成",
     likes: 94,
     comments: 17,
     saves: 33

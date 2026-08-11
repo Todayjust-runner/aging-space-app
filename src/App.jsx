@@ -28,6 +28,10 @@ import {
   Grip,
   Headset,
   Lightbulb,
+  ImagePlus,
+  RotateCcw,
+  SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -43,19 +47,32 @@ import {
   spaces
 } from "./demoData.js";
 import {
+  buildHumanFactorAssessment,
+  buildPlanSafetyProjection,
+  buildPostReviewSafetyProjection,
   buildReport,
-  estimateProjectedSafetyScore,
+  buildSolutionRouting,
+  canConfirmPlan,
+  calculatePatentRiskAssessment,
+  commitProfileDraft,
+  createCommunityPost,
   getCaseBySpace,
-  getFeedbackDelta,
+  getRecommendedRisksForProduct,
   getRisksBySpace,
   getSpaceById,
-  matchProductsForRisks,
+  isProfileComplete,
+  isCommunityPostDraftValid,
+  inputLimits,
+  loadSessionState,
   prioritizeRisksForProfile,
   selectInitialPlanProducts,
-  resolvePublicAssetUrl
+  resolvePublicAssetUrl,
+  sanitizeSessionState,
+  saveSessionState
 } from "./logic.js";
 
 const assetUrl = (path) => resolvePublicAssetUrl(path, import.meta.env.BASE_URL);
+const demoStorageKey = "zhihui-aging-demo:v7";
 
 const scanSteps = [
   { key: "home", label: "入口", icon: Home },
@@ -85,25 +102,53 @@ const categoryIcon = {
 };
 
 const scanPreviewImages = {
-  bathroom: "/assets/spaces/bathroom.png",
+  bathroom: "/assets/spaces/bathroom-accessible-warm.jpg",
   bedroom: "/assets/spaces/bedroom.png",
-  corridor: "/assets/spaces/corridor.png",
-  kitchen: "/assets/spaces/kitchen.jpg",
+  corridor: "/assets/spaces/corridor-warm.jpg",
+  kitchen: "/assets/spaces/kitchen.png",
   living: "/assets/spaces/living.png",
   balcony: "/assets/spaces/balcony.png"
 };
 
 const defaultElderProfile = {
-  age: "待确认",
-  living: "待确认",
-  mobility: "待确认",
-  night: "待确认",
-  focus: "防跌倒与通行安全",
-  notes: "信息待补充"
+  age: "75",
+  living: "独居",
+  mobility: "使用手杖",
+  vision: "弱光下视物困难",
+  grip: "起身需要借力",
+  assistance: "部分动作需辅助",
+  balance: "平衡能力受限",
+  fallHistory: "有跌倒经历",
+  night: "起夜频繁",
+  spaceUseFrequency: "4 次/日",
+  focus: "卫生间防跌倒",
+  notes: "夜间起身较慢"
 };
 
+const spaceResultLabels = {
+  bathroom: "可生成完整评估",
+  bedroom: "需补充夜间证据",
+  corridor: "需核对通道测量",
+  kitchen: "需专业复核",
+  living: "需专业复核",
+  balcony: "需专业复核"
+};
+
+function loadSavedSessionState() {
+  if (typeof window === "undefined") return {};
+  return sanitizeSessionState(loadSessionState(window.localStorage, demoStorageKey), {
+    entranceIds: coreEntrances.map((entry) => entry.id),
+    spaceIds: spaces.map((space) => space.id),
+    topicIds: communityTopics.map((topic) => topic.id).filter((id) => id !== "all"),
+    productIds: products.map((product) => product.id),
+    taskIdsBySpace: Object.fromEntries(
+      Object.entries(scanTasks).map(([id, tasks]) => [id, tasks.map((task) => task.id)])
+    )
+  });
+}
+
 function getProfileInsight(profile, space) {
-  const hasProfileData = [profile.age, profile.living, profile.mobility, profile.night]
+  const hasProfileData = [profile.age, profile.living, profile.mobility, profile.vision, profile.grip, profile.assistance, profile.night]
     .some((value) => value && value !== "待确认");
   if (!hasProfileData) return [];
 
@@ -121,6 +166,15 @@ function getProfileInsight(profile, space) {
   if (profile.mobility.includes("助行器") || profile.mobility.includes("轮椅")) {
     tips.push("使用辅具时，需要额外核查门槛高差、通道宽度和转弯空间。");
   }
+  if (/视物|视力/.test(profile.vision)) {
+    tips.push("视物困难会放大暗区、反光地面和门槛高差的识别难度。");
+  }
+  if (/不足|较弱|需借力/.test(profile.grip)) {
+    tips.push("抓握或支撑能力不足时，应提高扶手连续性和稳定借力点的优先级。");
+  }
+  if (/陪同|辅助/.test(profile.assistance)) {
+    tips.push("需要他人辅助时，还需复核照护者站位和双人通行空间。");
+  }
   if (space.id === "bathroom") {
     tips.push("本次评估空间为卫生间，湿区防滑、坐便支撑和门槛高差是首要检查项。");
   }
@@ -129,14 +183,22 @@ function getProfileInsight(profile, space) {
 }
 
 function App() {
-  const [activeEntrance, setActiveEntrance] = useState("scan");
-  const [step, setStep] = useState(0);
-  const [spaceId, setSpaceId] = useState("");
-  const [completedTasks, setCompletedTasks] = useState([]);
-  const [elderProfile, setElderProfile] = useState(defaultElderProfile);
-  const [planItemIds, setPlanItemIds] = useState([]);
-  const [communityFeed, setCommunityFeed] = useState(communityPosts);
-  const [maxUnlockedStep, setMaxUnlockedStep] = useState(0);
+  const [initialSessionState] = useState(loadSavedSessionState);
+  const [activeEntrance, setActiveEntrance] = useState(initialSessionState.activeEntrance ?? "scan");
+  const [step, setStep] = useState(initialSessionState.step ?? 0);
+  const [spaceId, setSpaceId] = useState(initialSessionState.spaceId ?? "");
+  const [completedTasks, setCompletedTasks] = useState(initialSessionState.completedTasks ?? []);
+  const [elderProfile, setElderProfile] = useState({
+    ...defaultElderProfile,
+    ...(initialSessionState.elderProfile ?? {})
+  });
+  const [planItemIds, setPlanItemIds] = useState(initialSessionState.planItemIds ?? []);
+  const [planConfirmed, setPlanConfirmed] = useState(initialSessionState.planConfirmed ?? false);
+  const [communityFeed, setCommunityFeed] = useState([
+    ...(initialSessionState.communityUserPosts ?? []),
+    ...communityPosts
+  ]);
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(initialSessionState.maxUnlockedStep ?? 0);
 
   const currentSpace = getSpaceById(spaces, spaceId);
   const activeSpaceId = currentSpace?.id ?? "";
@@ -146,19 +208,79 @@ function App() {
     () => prioritizeRisksForProfile(baseRisks, elderProfile),
     [baseRisks, elderProfile]
   );
-  const matchedProducts = useMemo(() => matchProductsForRisks(risks, products), [risks]);
+  const assessment = useMemo(
+    () => calculatePatentRiskAssessment({ spaceId: activeSpaceId, profile: elderProfile }),
+    [activeSpaceId, elderProfile]
+  );
+  const solutionRouting = useMemo(
+    () => buildSolutionRouting({ assessment, risks, products }),
+    [assessment, risks]
+  );
+  const matchedProducts = useMemo(
+    () => solutionRouting.demoCandidates.map((solution) => solution.product),
+    [solutionRouting]
+  );
   const report = useMemo(
-    () => currentSpace ? buildReport({ space: currentSpace, risks, products: matchedProducts }) : null,
-    [currentSpace, matchedProducts, risks]
+    () => currentSpace ? buildReport({
+      space: currentSpace,
+      risks,
+      products: matchedProducts,
+      assessment,
+      solutionRouting
+    }) : null,
+    [assessment, currentSpace, matchedProducts, risks, solutionRouting]
   );
   const sampleCase = getCaseBySpace(sampleCases, spaceId);
-  const feedbackDelta = getFeedbackDelta(sampleCase);
   const hasAssessment = Boolean(currentSpace && maxUnlockedStep >= 4);
+
+  useEffect(() => {
+    saveSessionState(window.localStorage, demoStorageKey, {
+      activeEntrance,
+      step,
+      spaceId,
+      completedTasks,
+      elderProfile,
+      planItemIds,
+      planConfirmed,
+      communityUserPosts: communityFeed
+        .filter((post) => post.id.startsWith("post_local_"))
+        .slice(0, 4),
+      maxUnlockedStep
+    });
+  }, [
+    activeEntrance,
+    communityFeed,
+    completedTasks,
+    elderProfile,
+    maxUnlockedStep,
+    planConfirmed,
+    planItemIds,
+    spaceId,
+    step
+  ]);
+
+  const updatePlanItemIds = (updater) => {
+    setPlanConfirmed(false);
+    setPlanItemIds(updater);
+  };
+
+  const restartAssessment = () => {
+    window.localStorage.removeItem(demoStorageKey);
+    setActiveEntrance("scan");
+    setStep(0);
+    setSpaceId("");
+    setCompletedTasks([]);
+    setElderProfile(defaultElderProfile);
+    setPlanItemIds([]);
+    setPlanConfirmed(false);
+    setMaxUnlockedStep(0);
+  };
 
   const resetForSpace = (nextSpaceId) => {
     setSpaceId(nextSpaceId);
     setCompletedTasks([]);
     setPlanItemIds([]);
+    setPlanConfirmed(false);
     setMaxUnlockedStep(2);
   };
 
@@ -194,29 +316,34 @@ function App() {
   };
   const completeAnalysis = () => {
     setPlanItemIds(selectInitialPlanProducts(matchedProducts, risks, 3).map((product) => product.id));
+    setPlanConfirmed(false);
     goNext();
   };
   const canGoBack = activeEntrance !== "scan" || step > 0;
 
   const screenProps = {
     currentSpace,
+    assessment,
+    solutionRouting,
     tasks,
     risks,
     matchedProducts,
     report,
     sampleCase,
-    feedbackDelta,
     hasAssessment,
     completedTasks,
     setCompletedTasks,
     elderProfile,
     setElderProfile,
     planItemIds,
-    setPlanItemIds,
+    setPlanItemIds: updatePlanItemIds,
+    planConfirmed,
+    setPlanConfirmed,
     communityFeed,
     setCommunityFeed,
     selectedSpaceId: spaceId,
     resetForSpace,
+    restartAssessment,
     completeAnalysis,
     goNext,
     setStep: moveToStep,
@@ -255,9 +382,12 @@ function App() {
             ))}
           </div>
           <div className="proof-strip">
-            <Metric value={report?.score ?? "--"} label="当前安全分" />
+            <Metric
+              value={report?.formalInput ? report.safetyValue : (report ? "待复核" : "--")}
+              label={report?.formalInput ? "安全分" : "评估状态"}
+            />
             <Metric value={`${risks.length}项`} label="风险点" />
-            <Metric value={`${matchedProducts.length}个`} label="匹配方案" />
+            <Metric value={`${solutionRouting.demoCandidates.length}个`} label="匹配方案" />
           </div>
           <div className="note-box">
             <ShieldCheck size={18} />
@@ -274,26 +404,31 @@ function PhoneFrame({ activeEntrance, canGoBack, children, goBack }) {
 
   return (
     <div className="iphone-device">
+      <span className="device-antenna device-antenna-left-top" aria-hidden="true" />
+      <span className="device-antenna device-antenna-left-bottom" aria-hidden="true" />
+      <span className="device-antenna device-antenna-right-top" aria-hidden="true" />
+      <span className="device-antenna device-antenna-right-bottom" aria-hidden="true" />
       <span className="device-button device-button-action" aria-hidden="true" />
       <span className="device-button device-button-volume-up" aria-hidden="true" />
       <span className="device-button device-button-volume-down" aria-hidden="true" />
       <span className="device-button device-button-power" aria-hidden="true" />
-      <span className="device-button device-button-camera" aria-hidden="true" />
       <section className="phone-frame" aria-label="智绘适老手机端">
         <div className="device-island" aria-hidden="true" />
         <IosStatusBar />
-        <header className="phone-header">
-          {canGoBack ? (
-            <button className="icon-button" onClick={goBack} aria-label="返回">
-              <ArrowLeft size={18} />
-            </button>
-          ) : <span className="header-spacer" aria-hidden="true" />}
-          <div>
-            <strong>智绘适老</strong>
-            <span>{activeMeta.label}</span>
-          </div>
-          <span className="icon-button" aria-hidden="true" style={{ visibility: "hidden" }} />
-        </header>
+        {activeEntrance !== "mall" && (
+          <header className="phone-header">
+            {canGoBack ? (
+              <button className="icon-button" onClick={goBack} aria-label="返回">
+                <ArrowLeft size={18} />
+              </button>
+            ) : <span className="header-spacer" aria-hidden="true" />}
+            <div>
+              <strong>智绘适老</strong>
+              <span>{activeMeta.label}</span>
+            </div>
+            <span className="icon-button" aria-hidden="true" style={{ visibility: "hidden" }} />
+          </header>
+        )}
         {children}
         <div className="device-home" aria-hidden="true" />
       </section>
@@ -301,55 +436,28 @@ function PhoneFrame({ activeEntrance, canGoBack, children, goBack }) {
   );
 }
 
-const iosTimeFormatter = new Intl.DateTimeFormat("en-GB", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false
-});
-
-function formatIosTime(date) {
-  return iosTimeFormatter.format(date);
-}
-
 function IosStatusBar() {
-  const [time, setTime] = useState(() => formatIosTime(new Date()));
-
-  useEffect(() => {
-    let minuteTimer;
-    const updateTime = () => setTime(formatIosTime(new Date()));
-    const boundaryTimer = window.setTimeout(() => {
-      updateTime();
-      minuteTimer = window.setInterval(updateTime, 60_000);
-    }, 60_000 - (Date.now() % 60_000));
-
-    return () => {
-      window.clearTimeout(boundaryTimer);
-      if (minuteTimer) window.clearInterval(minuteTimer);
-    };
-  }, []);
-
   return (
     <div className="phone-status" aria-hidden="true">
-      <span className="ios-time">{time}</span>
+      <span className="ios-time">9:41</span>
       <span />
-      <div className="ios-system-status">
-        <svg className="ios-cellular" viewBox="0 0 18 12">
-          <rect x="0" y="8" width="3" height="4" rx="1" />
-          <rect x="5" y="5.4" width="3" height="6.6" rx="1" />
-          <rect x="10" y="2.7" width="3" height="9.3" rx="1" />
-          <rect x="15" y="0" width="3" height="12" rx="1" />
-        </svg>
-        <svg className="ios-wifi" viewBox="0 0 17 12">
-          <path d="M1 3.4C5.1-.5 11.9-.5 16 3.4" />
-          <path d="M4.1 6.5c2.5-2.3 6.3-2.3 8.8 0" />
-          <circle cx="8.5" cy="10.1" r="1.35" />
-        </svg>
-        <svg className="ios-battery" viewBox="0 0 27 13">
-          <rect className="ios-battery-shell" x="0.6" y="0.75" width="23" height="11.5" rx="3.1" />
-          <rect className="ios-battery-level" x="2.4" y="2.55" width="15.2" height="7.9" rx="1.65" />
-          <path className="ios-battery-cap" d="M24.55 4.05v4.9c1.25-.2 2.05-1.14 2.05-2.45s-.8-2.25-2.05-2.45Z" />
-        </svg>
-      </div>
+      <svg className="ios-system-status" viewBox="0 0 78 14" focusable="false">
+        <g className="ios-cellular-bars">
+          <rect x="0" y="9" width="3.4" height="5" rx="1.25" />
+          <rect x="5.15" y="6.1" width="3.4" height="7.9" rx="1.25" />
+          <rect x="10.3" y="3.15" width="3.4" height="10.85" rx="1.25" />
+          <rect x="15.45" y="0.15" width="3.4" height="13.85" rx="1.25" />
+        </g>
+        <g className="ios-wifi-glyph">
+          <path d="M23.9 4.35C29.45-.72 38.55-.72 44.1 4.35l-2.55 2.5c-4.15-3.72-10.95-3.72-15.1 0Z" />
+          <path d="M28.05 8.45c3.28-3 8.62-3 11.9 0l-2.58 2.52c-1.85-1.6-4.89-1.6-6.74 0Z" />
+          <path d="M31.75 12.18a3.18 3.18 0 0 1 4.5 0L34 14Z" />
+        </g>
+        <g className="ios-battery-glyph">
+          <rect x="49.5" y="1" width="24.5" height="12" rx="3.8" />
+          <path d="M75.25 4.25v5.5A2.9 2.9 0 0 0 77.5 7a2.9 2.9 0 0 0-2.25-2.75Z" />
+        </g>
+      </svg>
     </div>
   );
 }
@@ -438,12 +546,30 @@ function HomeScreen({ setStep }) {
         <div><strong>{spaces.length} 类家庭空间</strong><span>单空间约 4-6 分钟</span></div>
         <ArrowRight size={17} />
       </div>
+      <ol className="product-loop-strip" aria-label="核心功能闭环">
+        {["识别判断", "方案转化", "效果验证"].map((label, index) => (
+          <li key={label}>
+            <span>{index + 1}</span>
+            <strong>{label}</strong>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
 
-function SpaceScreen({ currentSpace, selectedSpaceId, elderProfile, setElderProfile, resetForSpace, goNext }) {
+function SpaceScreen({
+  currentSpace,
+  selectedSpaceId,
+  elderProfile,
+  setElderProfile,
+  resetForSpace,
+  restartAssessment,
+  goNext
+}) {
   const hasSelectedSpace = Boolean(selectedSpaceId);
+  const profileReady = isProfileComplete(elderProfile);
+  const canStartCapture = hasSelectedSpace && profileReady;
 
   return (
     <section className="screen">
@@ -459,13 +585,16 @@ function SpaceScreen({ currentSpace, selectedSpaceId, elderProfile, setElderProf
       <div className="space-grid">
         {spaces.map((space) => (
           <button
-            className={`space-card ${space.id === selectedSpaceId ? "selected" : ""}`}
+            className={`space-card space-card-${space.id} ${space.id === selectedSpaceId ? "selected" : ""}`}
             key={space.id}
             onClick={() => resetForSpace(space.id)}
             style={{ "--image": `url(${assetUrl(scanPreviewImages[space.id])})` }}
           >
             <span className="space-card-media">
               <img src={assetUrl(scanPreviewImages[space.id])} alt={`${space.name}空间示例`} loading="lazy" />
+            </span>
+            <span className={`registry-badge ${space.registryStatus}`}>
+              {spaceResultLabels[space.id]}
             </span>
             <span className="space-scene">{space.scene}</span>
             <strong>{space.name}</strong>
@@ -476,9 +605,17 @@ function SpaceScreen({ currentSpace, selectedSpaceId, elderProfile, setElderProf
           </button>
         ))}
       </div>
-      <button className="primary-button full" onClick={goNext} disabled={!hasSelectedSpace}>
-        {hasSelectedSpace ? "进入引导采集" : "选择空间后进入采集"}
+      <button className="primary-button full" onClick={goNext} disabled={!canStartCapture}>
+        {!hasSelectedSpace
+          ? "选择空间后进入采集"
+          : profileReady
+            ? "进入引导采集"
+            : "请先确认老人情况"}
         <Camera size={18} />
+      </button>
+      <button className="text-action restart-assessment" type="button" onClick={restartAssessment}>
+        <RotateCcw size={15} />
+        重新开始评估
       </button>
     </section>
   );
@@ -501,6 +638,9 @@ function ScanScreen({
       }
       return next;
     });
+  };
+  const retakeTask = (taskId) => {
+    setCompletedTasks((current) => current.filter((completedId) => completedId !== taskId));
   };
   const progress = tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
   const previewImage = scanPreviewImages[currentSpace.id];
@@ -585,9 +725,14 @@ function ScanScreen({
                 <p>{task.tip}</p>
                 <span>{task.target}</span>
               </div>
-              <span className="task-state" aria-label={done ? "已采集" : "待采集"}>
-                {done ? <CheckCircle2 size={18} /> : <span />}
-              </span>
+              {done ? (
+                <button className="task-retake" type="button" onClick={() => retakeTask(task.id)}>
+                  <RotateCcw size={15} />
+                  重拍
+                </button>
+              ) : (
+                <span className="task-state" aria-label="待采集"><span /></span>
+              )}
             </article>
           );
         })}
@@ -610,7 +755,7 @@ function ScanScreen({
   );
 }
 
-function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeAnalysis }) {
+function AnalysisScreen({ currentSpace, tasks, risks, assessment, solutionRouting, completeAnalysis }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState(7);
   const analysisItems = [
@@ -637,7 +782,9 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
     {
       label: "方案匹配预热",
       processingValue: "等待生成评估结果",
-      completeValue: `已匹配 ${matchedProducts.length} 项产品与服务`
+      completeValue: assessment.viewType === "PublishedRiskResult"
+        ? `匹配方案 ${solutionRouting.demoCandidates.length} 项，待确认 ${solutionRouting.reviewTasks.length} 项`
+        : "当前信息需要补充或人工确认"
     }
   ];
   const analysisProgressTargets = [17, 36, 57, 78, 100];
@@ -677,7 +824,7 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
 
   return (
     <section className="screen analysis-buffer-screen">
-      <section className={`analysis-command-center ${analysisComplete ? "complete" : ""}`} aria-live="polite">
+      <section className={`analysis-command-center ${analysisComplete ? "complete" : ""}`}>
         <header className="analysis-console-top">
           <div>
             <span className="eyebrow">{analysisEyebrow}</span>
@@ -692,7 +839,11 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
           <div>
             <span>当前识别</span>
             <strong>{analysisComplete ? "评估输出完成" : activeItem.label}</strong>
-            <small>{analysisComplete ? "报告与候选方案已生成" : activeItemValue}</small>
+            <small>{analysisComplete
+              ? (assessment.viewType === "PublishedRiskResult"
+                ? "评估结果已生成，可继续查看改造建议"
+                : "观察结果已整理，等待补充信息或专业复核")
+              : activeItemValue}</small>
           </div>
         </div>
 
@@ -701,17 +852,28 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
             <span>识别进度</span>
             <strong>{analysisProgress}%</strong>
           </div>
-          <div className="analysis-progress-track">
+          <div
+            className="analysis-progress-track"
+            role="progressbar"
+            aria-label="智能分析进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={analysisProgress}
+          >
             <span style={{ width: `${analysisProgress}%` }} />
           </div>
         </div>
       </section>
 
+      <p className="sr-only" aria-live="polite">
+        {analysisComplete ? "智能分析完成" : `正在进行${activeItem.label}`}
+      </p>
+
       {!analysisComplete && <section className="analysis-live-feed" aria-label="缓冲识别进程">
         <header>
           <div>
             <span>智能评估</span>
-            <strong>实时识别事件</strong>
+            <strong>分析处理记录</strong>
           </div>
           <em>{analysisComplete ? "已输出" : "处理中"}</em>
         </header>
@@ -733,8 +895,13 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
       {analysisComplete && (
         <section className="analysis-result-summary" aria-label="识别结果摘要">
           <header>
-            <CheckCircle2 size={21} />
-            <div><strong>识别 {risks.length} 类风险</strong><span>{risks.filter((risk) => risk.requiresReview).length} 项需要人工确认</span></div>
+            {assessment.viewType === "PublishedRiskResult" ? <CheckCircle2 size={21} /> : <AlertTriangle size={21} />}
+            <div>
+              <strong>{assessment.viewType === "PublishedRiskResult" ? "风险评估已完成" : "还需要补充信息"}</strong>
+              <span>{assessment.viewType === "PublishedRiskResult"
+                ? `${solutionRouting.demoCandidates.length} 项适配条件已核对，施工前仍需现场确认`
+                : (assessment.reasons ?? ["需要补充信息或人工复核"]).join("；")}</span>
+            </div>
           </header>
           <div>
             {priorityRisks.map((risk) => (
@@ -744,7 +911,9 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
               </span>
             ))}
           </div>
-          <small>评估报告已生成，并筛选出 {matchedProducts.length} 项候选方案。</small>
+          <small>{assessment.viewType === "PublishedRiskResult"
+            ? "评估报告已生成；无法确认安装条件的方案不会直接加入清单。"
+            : "补充采集或完成专业复核后，才能生成可选方案。"}</small>
         </section>
       )}
 
@@ -763,59 +932,209 @@ function AnalysisScreen({ currentSpace, tasks, risks, matchedProducts, completeA
   );
 }
 
-function ReportScreen({ currentSpace, elderProfile, risks, report, goNext, setStep }) {
+function ReportScreen({ currentSpace, elderProfile, risks, report, solutionRouting, planItemIds, goNext, setStep }) {
   const [expandedRiskId, setExpandedRiskId] = useState(risks[0]?.id ?? null);
+  const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
+  const [reviewMethod, setReviewMethod] = useState("video");
+  const [reviewTime, setReviewTime] = useState("工作日上午");
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewRequest, setReviewRequest] = useState(null);
+  const [reviewView, setReviewView] = useState("form");
   const profileTips = getProfileInsight(elderProfile, currentSpace);
+  const humanFactorAssessment = buildHumanFactorAssessment(elderProfile, risks, report.assessment);
   const highRiskCount = risks.filter((risk) => risk.level === "高" || risk.level === "中高").length;
+  const confirmedIndividualCount = humanFactorAssessment.individualFactors
+    .filter((factor) => factor.value !== "待确认").length;
+  const selectedActionIds = solutionRouting.demoCandidates
+    .filter((solution) => planItemIds.includes(solution.product.id))
+    .map((solution) => solution.actionId);
+  const planProjection = buildPlanSafetyProjection({
+    assessment: report.assessment,
+    profile: elderProfile,
+    actionIds: selectedActionIds
+  });
+  const postReviewProjection = reviewRequest
+    ? buildPostReviewSafetyProjection({ spaceId: currentSpace?.id, profile: elderProfile })
+    : null;
+  const visibleProjection = planProjection ?? postReviewProjection;
+  const hasScoredResult = report.formalInput || Boolean(postReviewProjection);
+  const reviewRequirements = {
+    bedroom: ["补拍夜间起身动线", "确认床侧通道与照明覆盖"],
+    corridor: ["重新测量通道净宽", "核对门槛与地面障碍"],
+    kitchen: ["确认关键操作动线", "补充地面与取物高度记录"],
+    living: ["确认起身支撑条件", "补充主要通行路线记录"],
+    balcony: ["确认门槛高差与排水", "补充晾晒操作范围记录"]
+  }[currentSpace?.id] ?? ["补充缺失的空间信息", "由专业人员确认关键条件"];
+  const submitReviewRequest = (event) => {
+    event.preventDefault();
+    setReviewRequest({ method: reviewMethod, time: reviewTime, note: reviewNote.trim() });
+    setReviewView("success");
+  };
+  const openReviewSheet = () => {
+    setReviewView(reviewRequest ? "status" : "form");
+    setReviewSheetOpen(true);
+  };
 
   return (
     <section className="screen">
-      <div className={`score-card level-${report.levelKey}`}>
+      <div className={`score-card level-${postReviewProjection ? "risk-medium" : report.levelKey}${visibleProjection ? " with-projection" : ""}`}>
         <div>
-          <span>安全评估</span>
-          <strong>{report.level}</strong>
-          <small>{currentSpace.name} · {risks.length} 处隐患</small>
+          <span>当前风险等级</span>
+          <strong>{postReviewProjection ? `${postReviewProjection.riskTier}风险` : report.riskTier === "待复核" ? report.riskTier : `${report.riskTier}风险`}</strong>
+          <small>{postReviewProjection ? "人工复核后结果" : report.formalInput ? "当前评估结果" : "暂不显示安全数值"}</small>
         </div>
-        <div className="score-ring">
-          <span>{report.score}</span>
-          <small>/100</small>
-        </div>
+        {visibleProjection ? (
+          <div
+            className="score-card-comparison"
+            aria-label={`当前安全分 ${visibleProjection.before}，方案完成后预估安全分 ${visibleProjection.after}`}
+          >
+            <div>
+              <small>当前安全分</small>
+              <strong>{visibleProjection.before}</strong>
+            </div>
+            <ArrowRight size={18} />
+            <div className="projected">
+              <small>改造后预估</small>
+              <strong>{visibleProjection.after}</strong>
+            </div>
+            <em>完成后需复扫确认</em>
+          </div>
+        ) : (
+          <div className="score-ring">
+            <span>{report.safetyValue}</span>
+            <small>{report.formalInput ? "安全分" : "结果状态"}</small>
+          </div>
+        )}
       </div>
 
       <div className="report-overview">
         <strong>{report.title}</strong>
-        <span>发现 {risks.length} 处风险，{highRiskCount} 处建议优先处理</span>
+        <span>{hasScoredResult
+          ? `1 项综合风险结果 · ${risks.length} 处空间观察提示，${highRiskCount} 处建议优先关注`
+          : `${risks.length} 处空间观察提示 · 当前结果等待补充信息或专业复核`}</span>
       </div>
 
-      <p className="report-summary">{report.summary}</p>
+      <p className="report-summary">{postReviewProjection
+        ? "已根据补充证据和人工复核结果重新计算当前安全分；改造后数值为方案预估，执行完成后仍需同空间复扫确认。"
+        : report.summary}</p>
+
+      <section className={`result-gate-banner ${hasScoredResult ? "passed" : "review"}`}>
+        {hasScoredResult ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
+        <div>
+          <strong>{postReviewProjection ? "人工复核已完成" : report.formalInput ? "评估信息完整" : "需要补充信息或人工复核"}</strong>
+          <span>{postReviewProjection
+            ? `${postReviewProjection.reviewBasis.join("；")}。安全分越高越安全。`
+            : report.formalInput
+            ? "可以继续查看本次改造建议"
+            : (report.assessment.reasons ?? ["需要补充信息或人工复核"]).join("；")}</span>
+        </div>
+      </section>
+
+      {!report.formalInput && (
+        <section className="review-action-panel" aria-label="结果复核操作">
+          <header>
+            <div>
+              <span>下一步</span>
+              <strong>{postReviewProjection ? "复核结果已生成" : reviewRequest ? "复核申请已记录" : "完成复核后生成安全分与方案"}</strong>
+            </div>
+            {reviewRequest && <CheckCircle2 size={20} />}
+          </header>
+          {postReviewProjection ? (
+            <p>当前安全分 {postReviewProjection.before} · 改造后预估 {postReviewProjection.after} · 完成后需复扫确认</p>
+          ) : reviewRequest ? (
+            <p>
+              {reviewRequest.method === "video" ? "视频复核" : "上门复核"} · {reviewRequest.time}
+            </p>
+          ) : (
+            <ul>
+              {reviewRequirements.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          )}
+          <div>
+            <button type="button" className="secondary-button" onClick={() => setStep(2)}>
+              <Camera size={17} />
+              补充采集
+            </button>
+            <button type="button" className="primary-button" onClick={openReviewSheet}>
+              <Headset size={17} />
+              {postReviewProjection ? "查看复核结果" : reviewRequest ? "查看复核进度" : "申请人工复核"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      <section className="human-factor-panel" aria-label="人因风险判断">
+        <header>
+          <div>
+            <span>个性化判断依据</span>
+            <strong>老人情况 × 空间风险</strong>
+          </div>
+          <em>用户确认</em>
+        </header>
+        <p>老人情况由用户主动确认，用于调整风险处理优先级，不代表生理传感数据。</p>
+        <div className="human-factor-side">
+          <b>个体侧</b>
+          <div>
+            {humanFactorAssessment.individualFactors.map((factor) => (
+              <span className={factor.value === "待确认" ? "pending" : ""} key={factor.id}>
+                <small>{factor.label}</small>
+                <strong>{factor.value}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="human-factor-side spatial">
+          <b>空间侧</b>
+          <div>
+            {humanFactorAssessment.spatialFactors.map((factor) => (
+              <span className={factor.riskName ? "identified" : ""} key={factor.id}>
+                <small>{factor.label}</small>
+                <strong>{factor.status}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="human-factor-output">
+          <ArrowRight size={17} />
+          <div>
+            <strong>{confirmedIndividualCount}/4 项关键信息已确认</strong>
+            <span>信息缺失时不会默认低风险，将提示补充或人工确认。</span>
+          </div>
+        </div>
+      </section>
 
       <section className="profile-insight">
-        <span>老人情况调整提示顺序</span>
+        <span>本次个性化解释</span>
         {profileTips.length > 0 ? (
           <ul>
             {profileTips.map((tip) => (
               <li key={tip}>{tip}</li>
             ))}
           </ul>
-        ) : (
-          <p>补充老人情况后，将进一步调整风险提示重点。</p>
-        )}
+        ) : <p>补充个体情况后，将进一步调整风险提示重点。</p>}
       </section>
 
       <div className="risk-list">
-        {risks.map((risk) => (
+        {risks.map((risk) => {
+          const judgement = humanFactorAssessment.riskJudgements.find((item) => item.riskId === risk.id);
+          return (
           <article className="risk-card" key={risk.id}>
             <header>
               <div>
                 <span>{risk.riskType}</span>
                 <h3>{risk.name}</h3>
               </div>
-              <strong>{risk.level}</strong>
+              <div className="risk-level-stack">
+                <strong>{risk.level}</strong>
+                <small>空间观察提示</small>
+              </div>
             </header>
             {expandedRiskId === risk.id && (
               <div className="risk-detail-panel">
-                <strong>为什么判定为风险</strong>
+                <strong>空间侧依据</strong>
                 <span>{risk.evidence.join("，")}。{risk.rule}</span>
+                <strong>人因关联解释</strong>
+                <span>{judgement?.reasons.join("；")}。</span>
                 <strong>建议处理</strong>
                 <span>{risk.action}</span>
               </div>
@@ -824,77 +1143,290 @@ function ReportScreen({ currentSpace, elderProfile, risks, report, goNext, setSt
               <button type="button" onClick={() => setExpandedRiskId((current) => (current === risk.id ? null : risk.id))}>
                 {expandedRiskId === risk.id ? "收起原因" : "查看原因"}
               </button>
-              <button type="button" onClick={() => setStep(5)}>匹配方案</button>
+              <button type="button" onClick={() => report.formalInput ? setStep(5) : openReviewSheet()}>
+                {report.formalInput ? "匹配方案" : postReviewProjection ? "复核结果" : "申请复核"}
+              </button>
             </div>
           </article>
-        ))}
+          );
+        })}
       </div>
 
-      <button className="primary-button full" onClick={goNext}>
-        查看方案匹配
-        <ArrowRight size={18} />
+      <button className="primary-button full" onClick={() => report.formalInput ? goNext() : openReviewSheet()}>
+        {report.formalInput ? "查看方案匹配" : postReviewProjection ? "查看复核结果" : reviewRequest ? "查看复核进度" : "申请人工复核"}
+        {report.formalInput ? <ArrowRight size={18} /> : <Headset size={18} />}
       </button>
+
+      {reviewSheetOpen && (
+        <div className="review-sheet-backdrop" role="presentation" onMouseDown={() => setReviewSheetOpen(false)}>
+          <section
+            className="review-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-sheet-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>人工复核</span>
+                <strong id="review-sheet-title">
+                  {reviewView === "form" ? "选择复核方式" : reviewView === "success" ? "申请已提交" : postReviewProjection ? "复核结果" : "复核进度"}
+                </strong>
+              </div>
+              <button type="button" aria-label="关闭复核申请" onClick={() => setReviewSheetOpen(false)}>
+                <X size={20} />
+              </button>
+            </header>
+            {reviewView === "form" && <form onSubmit={submitReviewRequest}>
+              <div className="review-method-options" role="group" aria-label="复核方式">
+                <button
+                  type="button"
+                  className={reviewMethod === "video" ? "active" : ""}
+                  onClick={() => setReviewMethod("video")}
+                >
+                  <Camera size={18} />
+                  <span><strong>视频复核</strong><small>在线核对空间与尺寸</small></span>
+                </button>
+                <button
+                  type="button"
+                  className={reviewMethod === "home" ? "active" : ""}
+                  onClick={() => setReviewMethod("home")}
+                >
+                  <Home size={18} />
+                  <span><strong>上门复核</strong><small>现场确认安装与通行条件</small></span>
+                </button>
+              </div>
+              <label>
+                方便时间
+                <select value={reviewTime} onChange={(event) => setReviewTime(event.target.value)}>
+                  <option>工作日上午</option>
+                  <option>工作日下午</option>
+                  <option>周末上午</option>
+                  <option>周末下午</option>
+                </select>
+              </label>
+              <label>
+                补充说明（选填）
+                <textarea
+                  value={reviewNote}
+                  maxLength={120}
+                  rows={3}
+                  placeholder="例如：家中老人使用手杖，希望重点确认通道宽度"
+                  onChange={(event) => setReviewNote(event.target.value)}
+                />
+              </label>
+              <button type="submit" className="primary-button full">提交复核申请</button>
+            </form>}
+
+            {reviewView === "success" && (
+              <div className="review-success-view" role="status">
+                <span className="review-success-icon"><CheckCircle2 size={30} /></span>
+                <strong>复核申请已提交</strong>
+                <p>{reviewMethod === "video" ? "视频复核" : "上门复核"} · {reviewTime}</p>
+                <div>
+                  <span>接下来</span>
+                  <ol>
+                    <li>核对本次采集资料</li>
+                    <li>按复核重点补充证据或现场确认</li>
+                    <li>重新评估后生成安全分与方案</li>
+                  </ol>
+                </div>
+                <button type="button" className="primary-button full" onClick={() => setReviewView("status")}>
+                  {postReviewProjection ? "查看复核结果" : "查看复核进度"}
+                  <ArrowRight size={18} />
+                </button>
+                <button type="button" className="review-text-button" onClick={() => setReviewSheetOpen(false)}>返回评估报告</button>
+              </div>
+            )}
+
+            {reviewView === "status" && reviewRequest && (
+              <div className="review-status-view">
+                {postReviewProjection ? (
+                  <>
+                    <section className="review-result-score" aria-label="复核后安全分结果">
+                      <header>
+                        <CheckCircle2 size={20} />
+                        <div><span>复核完成</span><strong>{postReviewProjection.riskTier}风险</strong></div>
+                      </header>
+                      <div className="review-score-comparison">
+                        <div><span>当前安全分</span><strong>{postReviewProjection.before}</strong></div>
+                        <ArrowRight size={19} />
+                        <div><span>改造后预估</span><strong>{postReviewProjection.after}</strong></div>
+                      </div>
+                      <small>安全分越高越安全 · 方案执行后需复扫确认</small>
+                    </section>
+                    <ol className="review-progress-list completed" aria-label="复核处理进度">
+                      <li className="done">
+                        <CheckCircle2 size={18} />
+                        <div><strong>申请已提交</strong><span>复核方式和时间已记录</span></div>
+                      </li>
+                      <li className="done">
+                        <CheckCircle2 size={18} />
+                        <div><strong>空间条件已核对</strong><span>{postReviewProjection.reviewBasis.join("；")}</span></div>
+                      </li>
+                      <li className="done">
+                        <CheckCircle2 size={18} />
+                        <div><strong>评估结果已更新</strong><span>当前安全分和改造后预估已生成</span></div>
+                      </li>
+                    </ol>
+                    <div className="review-status-actions">
+                      <button type="button" className="secondary-button" onClick={() => setReviewView("form")}>修改复核信息</button>
+                      <button type="button" className="primary-button" onClick={() => setReviewSheetOpen(false)}>查看评估报告</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <section className="review-status-summary">
+                      <span>当前状态</span>
+                      <strong>{reviewRequest.method === "video" ? "等待视频资料核对" : "等待上门复核"}</strong>
+                      <p>{reviewRequest.method === "video" ? "视频复核" : "上门复核"} · {reviewRequest.time}</p>
+                    </section>
+                    <ol className="review-progress-list" aria-label="复核处理进度">
+                      <li className="done">
+                        <CheckCircle2 size={18} />
+                        <div><strong>申请已提交</strong><span>复核方式和时间已记录</span></div>
+                      </li>
+                      <li className="active">
+                        <Activity size={18} />
+                        <div><strong>资料与空间条件核对</strong><span>重点确认缺失证据和冲突信息</span></div>
+                      </li>
+                      <li>
+                        <span className="review-step-dot" />
+                        <div><strong>重新生成评估结果</strong><span>复核完成后更新安全分与方案入口</span></div>
+                      </li>
+                    </ol>
+                    <section className="review-focus-list">
+                      <span>本次复核重点</span>
+                      <ul>{reviewRequirements.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </section>
+                    <div className="review-status-actions">
+                      <button type="button" className="secondary-button" onClick={() => {
+                        setReviewSheetOpen(false);
+                        setStep(2);
+                      }}>
+                        <Camera size={17} />
+                        补充采集
+                      </button>
+                      <button type="button" className="primary-button" onClick={() => setReviewView("form")}>
+                        修改预约
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </section>
   );
 }
 
-function MatchScreen({ report, matchedProducts, risks, planItemIds, setPlanItemIds, goNext }) {
-  const selectedProducts = products.filter((product) => planItemIds.includes(product.id));
-  const highRiskCount = risks.filter((risk) => risk.level === "高" || risk.level === "中高").length;
-  const priorityRisks = risks.slice(0, 2);
+function MatchScreen({ report, solutionRouting, risks, planItemIds, setPlanItemIds, goNext }) {
+  const demoCandidates = solutionRouting.demoCandidates;
+  const candidateByProductId = new Map(demoCandidates.map((solution) => [solution.product.id, solution]));
+  const candidateProductIds = new Set(demoCandidates.map((solution) => solution.product.id));
+  const selectedProducts = products.filter((product) =>
+    planItemIds.includes(product.id) && candidateProductIds.has(product.id)
+  );
   const selectedBudget = selectedProducts.reduce(
-    (range, product) => ({
-      min: range.min + product.budgetMin,
-      max: range.max + product.budgetMax
-    }),
+    (range, product) => {
+      const budget = candidateByProductId.get(product.id)?.budget;
+      return {
+        min: range.min + (budget?.materialMin ?? 0),
+        max: range.max + (budget?.materialMax ?? 0)
+      };
+    },
     { min: 0, max: 0 }
   );
   const togglePlanItem = (productId) => {
+    if (!candidateProductIds.has(productId)) return;
     setPlanItemIds((current) =>
       current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]
+    );
+  };
+  const recommendationGroups = risks.map((risk) => ({
+    risk,
+    solutions: demoCandidates.filter((solution) => solution.displayRisk?.id === risk.id)
+  })).filter((group) => group.solutions.length > 0);
+  const renderRecommendation = (solution, rank) => {
+    const { product, displayRisk: risk } = solution;
+    return (
+      <article className="product-card recommendation-card" key={solution.solutionId}>
+        <div className="plan-product-media recommendation-media" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
+          <img className="plan-product-thumb" src={assetUrl(product.imageUrl)} alt={product.name} loading="lazy" />
+          <span>{rank === 0 ? "优先候选" : "备选动作"}</span>
+        </div>
+        <div className="recommendation-content">
+          <header>
+            <span>{product.category}</span>
+            <strong>{product.name}</strong>
+          </header>
+          <div className="recommendation-reason">
+            <Target size={15} />
+            <span><b>对应风险</b>{risk.name}</span>
+          </div>
+          <div className="recommendation-action">
+            <b>改造动作</b>
+            <span>{risk.action}</span>
+          </div>
+          <div className="recommendation-constraints">
+            <span><b>适用条件</b>{product.condition}</span>
+            <span><b>确认状态</b>适配条件已核对，施工前仍需现场确认</span>
+          </div>
+          <div className="product-meta">
+            <span><b>预算</b> 模拟估价 {solution.budget.materialMin}-{solution.budget.materialMax} 元</span>
+            <span>非报价</span>
+          </div>
+          <button
+            className={planItemIds.includes(product.id) ? "selected-button inline" : "secondary-button inline"}
+            onClick={() => togglePlanItem(product.id)}
+          >
+            {planItemIds.includes(product.id) ? "已在清单" : "加入清单"}
+          </button>
+        </div>
+      </article>
     );
   };
 
   return (
     <section className="screen">
-      <SectionTitle eyebrow="方案匹配" title="生成改造方案" text="按风险优先级和空间条件匹配产品与服务。" />
+      <SectionTitle eyebrow="改造建议" title="为本次风险匹配方案" text="先核对空间与安装条件，无法确认的项目交由专业人员复核。" />
+
+      <section className={`matching-gate ${report.formalInput ? "passed" : "review"}`}>
+        {report.formalInput ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}
+        <div>
+          <strong>{report.formalInput ? `安全分 ${report.safetyValue} · ${report.riskTier}风险` : "暂不显示安全数值"}</strong>
+          <span>{report.formalInput
+            ? `越高越安全 · ${demoCandidates.length} 项适配条件已核对，施工前仍需现场确认`
+            : "补充信息或完成专业复核后再生成方案"}</span>
+        </div>
+      </section>
 
       <section className="decision-engine-panel" aria-label="方案匹配">
         <header>
-          <div className="engine-icon">
-            <Cpu size={20} />
-          </div>
+          <div className="engine-icon"><Cpu size={20} /></div>
           <div>
-            <span>方案匹配</span>
-            <strong>评估结果生成方案</strong>
+            <span>智能匹配</span>
+            <strong>{report.formalInput ? "从风险到改造方向与方案候选" : "等待补充信息"}</strong>
           </div>
-          <em>{matchedProducts.length} 项匹配</em>
+          <em>{demoCandidates.length} 项</em>
         </header>
-        <div className="engine-flow-grid">
-          <div className="engine-node">
-            <span>评估结果</span>
-            <strong>{risks.length} 项风险</strong>
-            <small>{highRiskCount} 项建议优先处理</small>
-          </div>
-          <div className="engine-core">
-            <Activity size={22} />
-            <strong>匹配结果</strong>
-            <small>按风险优先级匹配</small>
-          </div>
-          <div className="engine-node output">
-            <span>改造清单</span>
-            <strong>{matchedProducts.length} 项方案</strong>
-            <small>已按适配度排序</small>
-          </div>
-        </div>
-        <div className="engine-signal-list">
-          {priorityRisks.map((risk) => (
-            <span key={risk.id}>
-              <ShieldCheck size={14} />
-              {risk.name}
-            </span>
+        <ol className="matching-chain">
+          {[
+            ["01", "风险识别", report.riskTier],
+            ["02", "改造方向", report.formalInput ? "已生成" : "待补充"],
+            ["03", "安装条件", demoCandidates.length ? "适配条件已核对" : "待确认"],
+            ["04", "可选方案", `${demoCandidates.length} 项`],
+            ["05", "改造后复扫", "验证效果"]
+          ].map(([index, label, value]) => (
+            <li key={label}>
+              <small>{index}</small>
+              <strong>{label}</strong>
+              <span>{value}</span>
+            </li>
           ))}
-        </div>
+        </ol>
       </section>
 
       <div className="budget-card">
@@ -902,46 +1434,49 @@ function MatchScreen({ report, matchedProducts, risks, planItemIds, setPlanItemI
           <span>当前方案清单</span>
           <strong>{selectedProducts.length ? `${selectedProducts.length} 项 · ${selectedBudget.min}-${selectedBudget.max} 元` : "尚未选择方案"}</strong>
         </div>
-        <small>预算为初步估算，实际报价需人工确认空间条件。</small>
+        <small>模拟估价/非报价，实际费用需现场确认。</small>
       </div>
 
-      <div className="product-list">
-        {matchedProducts.map((product) => {
-          const linkedRisks = risks.filter((risk) => product.riskIds.includes(risk.id));
-          return (
-            <article className="product-card recommendation-card" key={product.id}>
-              <div className="plan-product-media recommendation-media" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
-                <img className="plan-product-thumb" src={assetUrl(product.imageUrl)} alt={product.name} loading="lazy" />
-                <span>推荐</span>
-              </div>
-              <div className="recommendation-content">
-                <header>
-                  <span>{product.category}</span>
-                  <strong>{product.name}</strong>
-                </header>
-                <p>{product.condition}</p>
-                <div className="recommendation-reason">
-                  <Target size={15} />
-                  <span>优先解决：{linkedRisks.map((risk) => risk.name).slice(0, 2).join("、")}</span>
-                </div>
-                <div className="product-meta">
-                  <span>{product.budgetMin}-{product.budgetMax} 元</span>
-                  <span>{product.review}</span>
-                </div>
-                <button
-                  className={planItemIds.includes(product.id) ? "selected-button inline" : "secondary-button inline"}
-                  onClick={() => togglePlanItem(product.id)}
-                >
-                  {planItemIds.includes(product.id) ? "已在清单" : "加入清单"}
-                </button>
-              </div>
+      {solutionRouting.reviewTasks.length > 0 && (
+        <section className="review-task-list" aria-label="复核任务">
+          <header>
+            <AlertTriangle size={18} />
+            <div><strong>需要现场确认</strong><span>确认前不加入方案清单</span></div>
+          </header>
+          {solutionRouting.reviewTasks.map((task) => (
+            <article key={task.reviewTaskId}>
+              <strong>{task.product?.name ?? "上游风险结果复核"}</strong>
+              <span>{task.triggerDetail}</span>
+              <small>{task.suggestedReviewMethod}</small>
             </article>
-          );
-        })}
+          ))}
+        </section>
+      )}
+
+      <div className="recommendation-groups">
+        {recommendationGroups.map(({ risk, solutions }) => (
+          <section className="recommendation-group" key={risk.id}>
+            <header className="recommendation-group-heading">
+              <div><span>{risk.level}风险项</span><strong>{risk.name}</strong></div>
+              <small>{solutions.length} 项可选方案</small>
+            </header>
+            <div className="product-list">
+              {solutions.slice(0, 2).map((solution, rank) => renderRecommendation(solution, rank))}
+            </div>
+            {solutions.length > 2 && (
+              <details className="recommendation-more">
+                <summary>查看其余 {solutions.length - 2} 项候选</summary>
+                <div className="product-list">
+                  {solutions.slice(2).map((solution) => renderRecommendation(solution, 1))}
+                </div>
+              </details>
+            )}
+          </section>
+        ))}
       </div>
 
       <button className="primary-button full" onClick={goNext}>
-        查看方案预览
+        {demoCandidates.length ? "查看方案预览" : "查看需确认事项"}
         <ArrowRight size={18} />
       </button>
     </section>
@@ -952,6 +1487,7 @@ function MallScreen({
   currentSpace,
   hasAssessment,
   matchedProducts,
+  solutionRouting,
   report,
   risks,
   planItemIds,
@@ -960,24 +1496,50 @@ function MallScreen({
   setStep
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedShelfFilter, setSelectedShelfFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("recommended");
+  const [sortPanelOpen, setSortPanelOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [visibleProductLimit, setVisibleProductLimit] = useState(8);
   const recommendedIds = new Set(hasAssessment ? matchedProducts.map((product) => product.id) : []);
+  const candidateByProductId = new Map(
+    (hasAssessment ? solutionRouting.demoCandidates : []).map((solution) => [solution.product.id, solution])
+  );
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProducts = products.filter((product) => {
     const productCategory = productCategoryMap[product.category] ?? "all";
+    const productRiskText = riskRules
+      .filter((risk) => product.riskIds?.includes(risk.id))
+      .map((risk) => `${risk.name}${risk.action}`)
+      .join("");
     const matchesCategory = selectedCategory === "all" || selectedCategory === productCategory;
     const matchesQuery =
       !normalizedQuery ||
-      `${product.name}${product.category}${product.condition}`.toLowerCase().includes(normalizedQuery);
+      `${product.name}${product.category}${product.condition}${productRiskText}`.toLowerCase().includes(normalizedQuery);
+    const matchesShelf =
+      selectedShelfFilter === "all" ||
+      (selectedShelfFilter === "recommended" && recommendedIds.has(product.id)) ||
+      (selectedShelfFilter === "ready" && !product.requiresReview) ||
+      (selectedShelfFilter === "install" && product.requiresReview) ||
+      (selectedShelfFilter === "budget" && product.budgetMax <= 200);
 
-    return matchesCategory && matchesQuery;
-  }).sort((a, b) => Number(recommendedIds.has(b.id)) - Number(recommendedIds.has(a.id)));
-  const selectedProducts = products.filter((product) => planItemIds.includes(product.id));
+    return matchesCategory && matchesQuery && matchesShelf;
+  }).sort((a, b) => {
+    if (sortMode === "budget") return a.budgetMin - b.budgetMin;
+    if (sortMode === "ready") return Number(a.requiresReview) - Number(b.requiresReview);
+    return Number(recommendedIds.has(b.id)) - Number(recommendedIds.has(a.id));
+  });
+  const selectedProducts = products.filter((product) =>
+    planItemIds.includes(product.id) && recommendedIds.has(product.id)
+  );
   const selectedBudget = selectedProducts.reduce(
-    (range, product) => ({
-      min: range.min + product.budgetMin,
-      max: range.max + product.budgetMax
-    }),
+    (range, product) => {
+      const budget = candidateByProductId.get(product.id)?.budget;
+      return {
+        min: range.min + (budget?.materialMin ?? 0),
+        max: range.max + (budget?.materialMax ?? 0)
+      };
+    },
     { min: 0, max: 0 }
   );
   const togglePlanItem = (productId) => {
@@ -987,304 +1549,349 @@ function MallScreen({
     );
   };
 
-  const serviceProduct = filteredProducts.find((product) => product.id === "layout_review") || null;
-  const featurePool = filteredProducts.filter((product) => product.id !== "layout_review");
-  const featuredProduct = featurePool.find((product) => recommendedIds.has(product.id)) || null;
-  const restProducts = featurePool.filter((product) => !featuredProduct || product.id !== featuredProduct.id);
-  const gridProducts = restProducts.slice(0, 8);
-  const railProducts = restProducts.slice(8);
+  useEffect(() => {
+    setVisibleProductLimit(8);
+  }, [normalizedQuery, selectedCategory, selectedShelfFilter, sortMode]);
+
+  const visibleProducts = filteredProducts.slice(0, visibleProductLimit);
+  const hasMoreProducts = visibleProducts.length < filteredProducts.length;
+  const categoryItems = mallCategories;
+  const shelfFilters = [
+    { id: "all", label: "全部" },
+    { id: "recommended", label: "报告推荐", disabled: !hasAssessment },
+    { id: "ready", label: "免施工" },
+    { id: "install", label: "需安装" },
+    { id: "budget", label: "低预算" }
+  ];
 
   return (
     <section className="screen marketplace-screen">
-      <div
-        className={`mall-topbar ${hasAssessment ? "personalized" : "neutral"}`}
-        style={hasAssessment ? { "--image": `url(${assetUrl(scanPreviewImages[currentSpace.id])})` } : undefined}
-      >
+      <header className="mall-library-header">
         <div>
-          <span className="eyebrow">方案商城</span>
-          <h2>{hasAssessment ? `${currentSpace.name}方案推荐` : "全屋适老方案"}</h2>
-          <p>
-            {hasAssessment ? (
-              "根据本次评估报告优先展示匹配商品和服务。"
-            ) : (
-              <>
-                先浏览适老产品，<br />评估后获取专属方案。
-              </>
-            )}
-          </p>
+          <h2>适老方案库</h2>
+          <p>{hasAssessment ? `${currentSpace.name}评估已接入，优先展示匹配方案` : "精选适老产品与服务，评估后获取专属方案"}</p>
         </div>
-        <div className="mall-risk-chip">
-          <span>{hasAssessment ? "风险项" : "评估状态"}</span>
-          <strong>{hasAssessment ? risks.length : "未评估"}</strong>
-        </div>
-      </div>
-
-      <div className="mall-categories" role="tablist" aria-label="方案分类">
-        {mallCategories.map((category) => {
-          const Icon = categoryIcon[category.id] ?? Sparkles;
-          return (
-            <button
-              key={category.id}
-              className={`mall-category ${selectedCategory === category.id ? "active" : ""}`}
-              onClick={() => setSelectedCategory(category.id)}
-              role="tab"
-              aria-selected={selectedCategory === category.id}
-            >
-              <span className="mall-category-icon">
-                <Icon size={20} />
-              </span>
-              <span>{category.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mall-search">
-        <Search size={17} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索扶手、防滑、夜灯、坡化服务" />
-      </div>
-
-      {featuredProduct && (
-        <article className="mall-feature">
-          <div className="product-image" style={{ "--image": `url(${assetUrl(featuredProduct.imageUrl)})` }}>
-            <img src={assetUrl(featuredProduct.imageUrl)} alt={featuredProduct.name} />
-          </div>
-          <div className="mall-feature-body">
-            <span className="recommend-label">报告推荐</span>
-            <strong>{featuredProduct.name}</strong>
-            <p>{featuredProduct.subtitle}</p>
-            <div className="mall-feature-meta">
-              <strong>{featuredProduct.budgetMin}-{featuredProduct.budgetMax} 元</strong>
-              <small>{featuredProduct.rating} 分 · {featuredProduct.sales} 人选用</small>
-            </div>
-            <button
-              disabled={!hasAssessment}
-              className={planItemIds.includes(featuredProduct.id) ? "selected-button" : "primary-button"}
-              onClick={() => togglePlanItem(featuredProduct.id)}
-            >
-              {!hasAssessment ? "评估后加入" : planItemIds.includes(featuredProduct.id) ? "已加入方案单" : "加入方案单"}
-            </button>
-          </div>
-        </article>
-      )}
-
-      <div className="shelf-heading">
-                  <strong>全部方案 · {filteredProducts.length} 项</strong>
         <button
-          disabled={!hasAssessment}
+          className="mall-plan-button"
           onClick={() => {
-            setActiveEntrance("scan");
-            setStep(5);
+            if (hasAssessment) {
+              setActiveEntrance("scan");
+              setStep(5);
+            } else {
+              setActiveEntrance("scan");
+              setStep(1);
+            }
           }}
         >
-          {hasAssessment ? `方案单 ${selectedProducts.length} 项 · ${selectedBudget.min}-${selectedBudget.max} 元` : "完成评估后生成方案单"}
+          <ClipboardList size={18} />
+          <span>方案单</span>
+          {hasAssessment && <strong>{selectedProducts.length}</strong>}
+        </button>
+      </header>
+
+      <div className="mall-toolbar">
+        <label className="mall-search">
+          <Search size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索产品、服务或适用位置" />
+        </label>
+        <button className="mall-sort-button" type="button" aria-expanded={sortPanelOpen} onClick={() => setSortPanelOpen((open) => !open)}>
+          <SlidersHorizontal size={18} />
+          排序
         </button>
       </div>
 
-      {gridProducts.length > 0 && (
-        <div className="commerce-grid">
-          {gridProducts.map((product) => {
-            const linkedRisks = riskRules.filter((risk) => product.riskIds.includes(risk.id));
-            const isRecommended = recommendedIds.has(product.id);
-            const isSelected = planItemIds.includes(product.id);
+      {sortPanelOpen && (
+        <div className="mall-sort-panel" aria-label="商品排序">
+          {[
+            { id: "recommended", label: "推荐优先" },
+            { id: "budget", label: "预算从低到高" },
+            { id: "ready", label: "免施工优先" }
+          ].map((option) => (
+            <button key={option.id} type="button" className={sortMode === option.id ? "active" : ""} onClick={() => { setSortMode(option.id); setSortPanelOpen(false); }}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mall-shelf-filters" role="tablist" aria-label="适用条件筛选">
+        {shelfFilters.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            role="tab"
+            disabled={filter.disabled}
+            aria-selected={selectedShelfFilter === filter.id}
+            className={selectedShelfFilter === filter.id ? "active" : ""}
+            onClick={() => setSelectedShelfFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mall-catalog-shell">
+        <aside className="mall-category-rail" aria-label="产品品类">
+          {categoryItems.map((category) => {
+            const Icon = categoryIcon[category.id] ?? Sparkles;
             return (
-              <article className={`commerce-tile ${isRecommended ? "recommended" : ""}`} key={product.id}>
-                <div className="product-image" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
-                  <img src={assetUrl(product.imageUrl)} alt={product.name} />
-                </div>
-                <div className="commerce-body">
-                  <div className="shop-row">
-                    <span className="shop-name">{product.shop}</span>
-                    {isRecommended && <span className="recommend-label">报告推荐</span>}
-                  </div>
-                  <strong>{product.name}</strong>
-                  <p className="product-subtitle">{product.subtitle}</p>
-                </div>
-                <div className="price-line">
-                  <strong>{product.budgetMin}-{product.budgetMax} 元</strong>
-                  <small>{product.rating} 分 · {product.sales} 人选用</small>
-                </div>
-                <div className="spec-row">
-                  {product.specs.slice(0, 2).map((spec) => (
-                    <span key={spec}>{spec}</span>
-                  ))}
-                </div>
-                <details className="risk-details">
-                  <summary>匹配原因</summary>
-                  <div>
-                    {linkedRisks.map((risk) => (
-                      <span key={risk.id}>{risk.name}</span>
-                    ))}
-                  </div>
-                </details>
-                <div className="commerce-actions">
-                  <button disabled={!hasAssessment} className={isSelected ? "selected-button" : "primary-button"} onClick={() => togglePlanItem(product.id)}>
-                    {!hasAssessment ? "评估后加入" : isSelected ? "已加入" : "加入方案单"}
-                  </button>
-                </div>
-              </article>
+              <button
+                key={category.id}
+                type="button"
+                className={selectedCategory === category.id ? "active" : ""}
+                onClick={() => setSelectedCategory(category.id)}
+                aria-pressed={selectedCategory === category.id}
+              >
+                <Icon size={21} />
+                <span>{category.label}</span>
+              </button>
             );
           })}
+        </aside>
+
+        <div className="mall-product-column">
+          <div className="mall-list-heading">
+            <strong>{mallCategories.find((category) => category.id === selectedCategory)?.label ?? "全部"}</strong>
+            <span>{filteredProducts.length} 项</span>
+          </div>
+          {visibleProducts.length > 0 ? (
+            <div className="mall-product-list" aria-live="polite">
+              {visibleProducts.map((product) => {
+                const linkedRisks = getRecommendedRisksForProduct(risks, product);
+                const catalogRisk = linkedRisks[0] ?? riskRules.find((risk) => product.riskIds?.includes(risk.id));
+                const isRecommended = recommendedIds.has(product.id);
+                const isSelected = planItemIds.includes(product.id);
+                const canAddToPlan = hasAssessment && isRecommended;
+                const candidateBudget = candidateByProductId.get(product.id)?.budget;
+                const displayBudgetMin = candidateBudget?.materialMin ?? product.budgetMin;
+                const displayBudgetMax = candidateBudget?.materialMax ?? product.budgetMax;
+                const catalogActionLabel = canAddToPlan
+                  ? `${isSelected ? "移出" : "加入"}${product.name}`
+                  : `查看${product.name}匹配条件`;
+                return (
+                  <article className={`mall-product-row ${isRecommended ? "recommended" : ""}`} key={product.id}>
+                    <div className="mall-product-media product-image" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
+                      <img src={assetUrl(product.imageUrl)} alt={product.name} loading="lazy" />
+                      {isRecommended && <span>推荐</span>}
+                    </div>
+                    <div className="mall-product-info">
+                      <div className="mall-product-title">
+                        <strong>{product.name}</strong>
+                        <small>{product.category}</small>
+                      </div>
+                      <p>{product.subtitle}</p>
+                      <ul>
+                        {product.specs.slice(0, 1).map((spec) => <li key={spec}>{spec}</li>)}
+                      </ul>
+                      {catalogRisk && (
+                        <div className="mall-match-details">
+                          <span><b>对应风险</b>{catalogRisk.name}</span>
+                          <span><b>改造动作</b>{catalogRisk.action}</span>
+                        </div>
+                      )}
+                      <div className="mall-constraint-line">
+                        <span>{isRecommended ? "适配条件已核对" : "需结合空间条件确认"}</span>
+                        <span>{isRecommended ? "施工前仍需现场确认" : product.condition}</span>
+                      </div>
+                      <div className="mall-product-footer">
+                        <div>
+                          <small>模拟估价 · 非报价</small>
+                          <strong>{displayBudgetMin}-{displayBudgetMax} 元</strong>
+                        </div>
+                        <button
+                          type="button"
+                          className={isSelected ? "selected" : ""}
+                          aria-label={catalogActionLabel}
+                          title={canAddToPlan
+                            ? (isSelected ? "移出方案单" : "加入方案单")
+                            : "查看风险匹配条件"}
+                          onClick={() => {
+                            if (canAddToPlan) togglePlanItem(product.id);
+                            else {
+                              setActiveEntrance("scan");
+                              setStep(hasAssessment ? 5 : 1);
+                            }
+                          }}
+                        >
+                          {isSelected
+                            ? <CheckCircle2 size={18} />
+                            : canAddToPlan
+                              ? <Plus size={18} />
+                              : <ArrowRight size={18} />}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mall-empty-state">
+              <Search size={22} />
+              <strong>没有找到对应方案</strong>
+              <span>可尝试更换关键词或查看其他分类</span>
+            </div>
+          )}
+
+          {filteredProducts.length > 0 && (
+            <div className="catalog-load-control">
+              <span>已展示 {visibleProducts.length} / {filteredProducts.length} 项</span>
+              {hasMoreProducts ? (
+                <button type="button" onClick={() => setVisibleProductLimit((current) => Math.min(current + 8, filteredProducts.length))}>
+                  展开更多
+                  <Plus size={17} />
+                </button>
+              ) : <strong>已展示全部</strong>}
+            </div>
+          )}
         </div>
-      )}
-
-      {railProducts.length > 0 && (
-        <div className="mall-shelf">
-          <div className="shelf-heading">
-            <strong>更多防护与照明</strong>
-          </div>
-          <div className="mall-rail">
-            {railProducts.map((product) => (
-              <article className="rail-tile" key={product.id}>
-                <div className="product-image" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
-                  <img src={assetUrl(product.imageUrl)} alt={product.name} />
-                </div>
-                <strong>{product.name}</strong>
-                <span>{product.budgetMin}-{product.budgetMax} 元</span>
-              </article>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {serviceProduct && (
-        <article className="mall-service-cta">
-          <div className="product-image" style={{ "--image": `url(${assetUrl(serviceProduct.imageUrl)})` }}>
-            <img src={assetUrl(serviceProduct.imageUrl)} alt={serviceProduct.name} />
-          </div>
-          <div className="mall-service-body">
-            <span className="recommend-label">人工服务</span>
-            <strong>{serviceProduct.name}</strong>
-            <p>{serviceProduct.subtitle}</p>
-            <button
-              disabled={!hasAssessment}
-              className={planItemIds.includes(serviceProduct.id) ? "selected-button" : "primary-button"}
-              onClick={() => togglePlanItem(serviceProduct.id)}
-            >
-              {!hasAssessment ? "评估后加入" : planItemIds.includes(serviceProduct.id) ? "已加入方案单" : "查看服务"}
-            </button>
-          </div>
-        </article>
-      )}
-
-      <div className="action-row">
-        <button
-          className="secondary-button"
-          onClick={() => {
-            setActiveEntrance("scan");
-            setStep(1);
-          }}
-        >
-          {hasAssessment ? "重新评估" : "开始评估"}
-        </button>
-        <button className="primary-button" onClick={() => setActiveEntrance("community")}>
-          看效果案例
-          <ArrowRight size={18} />
-        </button>
       </div>
+
+      <button
+        className="mall-guidance-bar"
+        type="button"
+        onClick={() => {
+          setActiveEntrance("scan");
+          setStep(hasAssessment ? 5 : 1);
+        }}
+      >
+        <span>
+          <strong>{hasAssessment ? `已选 ${selectedProducts.length} 项方案` : "不知道如何选择？"}</strong>
+          <small>{hasAssessment ? `模拟估价 ${selectedBudget.min}-${selectedBudget.max} 元 · 非报价` : "完成空间评估，获取针对性改造建议"}</small>
+        </span>
+        <b>
+          {hasAssessment ? "查看方案单" : "开始评估"}
+          <ArrowRight size={18} />
+        </b>
+      </button>
     </section>
   );
 }
 
-function PlanPreviewScreen({ report, sampleCase, feedbackDelta, risks, planItemIds, setStep }) {
-  const [confirmed, setConfirmed] = useState(false);
-  const selectedProducts = products.filter((product) => planItemIds.includes(product.id));
+function PlanPreviewScreen({
+  report,
+  elderProfile,
+  sampleCase,
+  solutionRouting,
+  risks,
+  planItemIds,
+  planConfirmed,
+  setPlanConfirmed,
+  setStep
+}) {
+  const candidateByProductId = new Map(solutionRouting.demoCandidates.map((solution) => [solution.product.id, solution]));
+  const candidateProductIds = new Set(candidateByProductId.keys());
+  const selectedProducts = products.filter((product) =>
+    planItemIds.includes(product.id) && candidateProductIds.has(product.id)
+  );
+  const hasPlanItems = report.formalInput && canConfirmPlan(selectedProducts.map((product) => product.id));
   const previewProducts = selectedProducts;
-  const expectedScore = estimateProjectedSafetyScore({
-    currentScore: report.score,
-    benchmarkScore: sampleCase?.afterRisk ?? report.score,
-    risks,
-    selectedProducts
+  const selectedActionIds = solutionRouting.demoCandidates
+    .filter((solution) => selectedProducts.some((product) => product.id === solution.product.id))
+    .map((solution) => solution.actionId);
+  const planProjection = buildPlanSafetyProjection({
+    assessment: report.assessment,
+    profile: elderProfile,
+    actionIds: selectedActionIds
   });
-  const reviewItems = report.reviewItems.slice(0, 2);
 
   return (
     <section className="screen plan-preview-screen">
-      <SectionTitle eyebrow="效果预览" title="确认本次改造闭环" text="把安全分、方案清单和参考效果放在同一页，便于家属继续下单或调整。" />
+      <SectionTitle eyebrow="效果预览" title="确认执行与复扫路径" text="当前数值来自本次评估；方案执行后需重新采集，确认最终安全分。" />
 
       <div className="preview-summary">
         <div>
-          <span>当前安全</span>
-          <strong>{report.score}</strong>
+          <span>当前安全分</span>
+          <strong>{report.safetyValue}</strong>
         </div>
         <ArrowRight size={18} />
         <div>
-          <span>预计改造后</span>
-          <strong>{expectedScore}</strong>
+          <span>改造后预估</span>
+          <strong>{planProjection?.after ?? "--"}</strong>
         </div>
+        <small>安全分越高越安全 · 已选 {selectedProducts.length} 项改造措施 · 完成后需复扫确认</small>
       </div>
 
-      {confirmed && (
+      {planConfirmed && (
         <div className="preview-confirmed" role="status">
           <CheckCircle2 size={18} />
           <span>方案单已确认，可继续在方案商城查看商品和服务。</span>
         </div>
       )}
 
-      <div className="platform-preview-shell">
-        <section className="platform-device-panel diagnostic-panel">
-          <header>
-            <span>家属端</span>
-            <strong>评估结果</strong>
-          </header>
-          <div className="platform-score-line">
-            <span>安全分</span>
-            <strong>{report.score}</strong>
-            <small>{report.level}</small>
-          </div>
-          <ul>
-            <li>{reviewItems.length ? reviewItems[0] : "暂无人工复核项"}</li>
-            <li>预计改造后安全分升至 {expectedScore}</li>
-          </ul>
-        </section>
-
-        <section className="platform-device-panel console-panel">
-          <header>
-            <span>服务端</span>
-            <strong>改造清单</strong>
-          </header>
-          <div className="preview-plan-list console-plan-list">
-            {previewProducts.length ? previewProducts.map((product) => (
-              <article key={product.id}>
-                <span className="preview-product-thumb" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
-                  <img src={assetUrl(product.imageUrl)} alt={product.name} loading="lazy" />
-                </span>
-                <div>
-                  <strong>{product.name}</strong>
-                  <span>{product.category} · {product.budgetMin}-{product.budgetMax} 元</span>
-                </div>
-                <CheckCircle2 size={18} />
-              </article>
-            )) : <p className="empty-plan-message">尚未选择改造项目，请返回调整清单。</p>}
-          </div>
-        </section>
-      </div>
-
-      <div className="case-card preview-case">
-        <span>参考效果</span>
-        <h3>{sampleCase?.title}</h3>
-        <div className="before-after compact">
+      <section className="selected-plan-summary">
+        <header>
           <div>
-            <small>改造前</small>
-            <strong>{sampleCase?.beforeRisk}</strong>
+            <span>已选改造方案</span>
+            <strong>{previewProducts.length} 项措施待确认</strong>
           </div>
-          <ArrowRight size={17} />
+          <button type="button" onClick={() => setStep(5)}>调整</button>
+        </header>
+        <div className="preview-plan-list">
+          {previewProducts.length ? previewProducts.map((product) => (
+            <article key={product.id}>
+              <span className="preview-product-thumb" style={{ "--image": `url(${assetUrl(product.imageUrl)})` }}>
+                <img src={assetUrl(product.imageUrl)} alt={product.name} loading="lazy" />
+              </span>
+              <div>
+                <strong>{product.name}</strong>
+                <span>{product.category} · 模拟估价 {candidateByProductId.get(product.id)?.budget.materialMin}-{candidateByProductId.get(product.id)?.budget.materialMax} 元</span>
+              </div>
+              <CheckCircle2 size={18} />
+            </article>
+          )) : <p className="empty-plan-message">至少选择一项改造方案后才能确认，请返回调整清单。</p>}
+        </div>
+        <p className="rescan-reminder">
+          <RotateCcw size={16} />
+          完成改造后按原路径复扫，确认最终安全分
+        </p>
+      </section>
+
+      <section className="effect-preview-block" aria-label={`${sampleCase?.title}复扫对比`}>
+        <header>
           <div>
-            <small>改造后</small>
-            <strong>{sampleCase?.afterRisk}</strong>
+            <span>{sampleCase?.comparisonVerified ? "空间效果对比" : "复扫对比"}</span>
+            <strong>{sampleCase?.title}</strong>
           </div>
-        </div>
-        <div className="delta-line">
-          参考案例安全分提升 {feedbackDelta.value} 分
-        </div>
+          <small>{sampleCase?.comparisonVerified ? "同一空间记录" : "按相同视角重新采集后生成"}</small>
+        </header>
+        {sampleCase?.comparisonVerified && sampleCase?.comparisonImage ? (
+          <figure className="effect-comparison-single">
+            <img src={assetUrl(sampleCase.comparisonImage)} alt={sampleCase.comparisonAlt} />
+            <figcaption>同一空间改造前后实景</figcaption>
+          </figure>
+        ) : (
+          <div className="comparison-pending-state">
+            <RotateCcw size={25} />
+            <div>
+              <strong>完成同空间复扫后生成对比</strong>
+              <span>改造前后使用同一拍摄位置和视角，避免将不同住宅图片错误拼接。</span>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <div className="case-card preview-case validation-path">
+        <span>效果验证闭环</span>
+        <h3>执行后重新评估，确认最终安全分</h3>
+        <ol>
+          <li>方案执行与安装记录</li>
+          <li>改造后同空间复扫</li>
+          <li>按相同采集要求重新评估</li>
+          <li>对比改造前后风险和使用体验</li>
+        </ol>
       </div>
 
       <div className="action-row">
         <button className="secondary-button" onClick={() => setStep(5)}>
           调整清单
         </button>
-        <button className="primary-button" onClick={() => setConfirmed(true)}>
-          {confirmed ? "已确认" : "确认方案单"}
+        <button
+          className="primary-button"
+          disabled={!hasPlanItems}
+          onClick={() => setPlanConfirmed(true)}
+        >
+          {planConfirmed ? "已确认" : report.formalInput ? "确认方案单" : "等待复核"}
           <CheckCircle2 size={18} />
         </button>
       </div>
@@ -1297,39 +1904,60 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
   const [composerOpen, setComposerOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState("");
+  const [draftTopic, setDraftTopic] = useState("share");
+  const [draftSpace, setDraftSpace] = useState("living");
+  const [draftImageData, setDraftImageData] = useState("");
+  const [draftError, setDraftError] = useState("");
+  const postDraft = {
+    title: draftTitle,
+    content: draftContent,
+    topic: draftTopic,
+    space: draftSpace,
+    imageData: draftImageData
+  };
+  const canPublish = isCommunityPostDraftValid(postDraft);
   const visiblePosts = communityFeed.filter(
     (post) => selectedTopic === "all" || post.topic === selectedTopic
   );
-  const publishPost = () => {
-    if (!draftTitle.trim() || !draftContent.trim()) {
+  const resetComposer = () => {
+    setDraftTitle("");
+    setDraftContent("");
+    setDraftTopic("share");
+    setDraftSpace("living");
+    setDraftImageData("");
+    setDraftError("");
+  };
+  const closeComposer = () => {
+    resetComposer();
+    setComposerOpen(false);
+  };
+  const handleDraftImage = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setDraftError("图片请控制在 1MB 以内");
       return;
     }
 
-    const post = {
-      id: `post_local_${Date.now()}`,
-      topic: "share",
-      space: "living",
-      publishedAt: new Date().toISOString(),
-      author: "当前用户",
-      role: "家庭用户",
-      location: "本地社区",
-      title: draftTitle.trim(),
-      content: draftContent.trim(),
-      actions: ["待复扫", "待人工校核"],
-      beforeRisk: null,
-      afterRisk: null,
-      likes: 0,
-      comments: 0,
-      saves: 0,
-      badge: "经验分享",
-      images: [],
-      imageAlts: []
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDraftImageData(typeof reader.result === "string" ? reader.result : "");
+      setDraftError("");
     };
+    reader.readAsDataURL(file);
+  };
+  const publishPost = () => {
+    if (!canPublish) return;
+
+    const topicMeta = communityTopics.find((topic) => topic.id === draftTopic);
+
+    const post = createCommunityPost(postDraft, {
+      badge: topicMeta?.label ?? "经验分享"
+    });
 
     setCommunityFeed((current) => [post, ...current]);
-    setDraftTitle("");
-    setDraftContent("");
-    setComposerOpen(false);
+    setSelectedTopic(draftTopic);
+    closeComposer();
   };
   const updatePost = (postId, updater) => {
     setCommunityFeed((current) => current.map((post) => (post.id === postId ? updater(post) : post)));
@@ -1338,7 +1966,10 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
   return (
     <section className="screen community-screen">
       <div className="community-topbar">
-        <h2>效果社区</h2>
+        <div>
+          <h2>效果社区</h2>
+          <small>人因评价与改造反馈</small>
+        </div>
         <button className="post-button" onClick={() => setComposerOpen((value) => !value)}>
           <Plus size={18} />
           发帖
@@ -1347,18 +1978,59 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
 
       {composerOpen && (
         <section className="composer-card">
-          <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="标题：例如 卫生间装扶手后复扫结果" />
-          <textarea
-            value={draftContent}
-            onChange={(event) => setDraftContent(event.target.value)}
-            placeholder="写下改造前问题、采用的方案、复扫变化或想咨询的问题"
-            rows={4}
-          />
-          <div>
-            <button className="secondary-button" onClick={() => setComposerOpen(false)}>
+          <header>
+            <strong>发布到效果社区</strong>
+            <span>分享改造经验或提出具体问题</span>
+          </header>
+          <div className="composer-fields">
+            <label>
+              <span>话题</span>
+              <select value={draftTopic} onChange={(event) => setDraftTopic(event.target.value)}>
+                {communityTopics.filter((topic) => topic.id !== "all").map((topic) => (
+                  <option value={topic.id} key={topic.id}>{topic.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>空间</span>
+              <select value={draftSpace} onChange={(event) => setDraftSpace(event.target.value)}>
+                {spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="composer-wide-field">
+            <span>标题</span>
+            <input
+              value={draftTitle}
+              maxLength={inputLimits.communityTitle}
+              onChange={(event) => setDraftTitle(event.target.value)}
+              placeholder="例如：卫生间装扶手后复扫结果"
+            />
+          </label>
+          <label className="composer-wide-field">
+            <span>正文</span>
+            <textarea
+              value={draftContent}
+              maxLength={inputLimits.communityContent}
+              onChange={(event) => setDraftContent(event.target.value)}
+              placeholder="写下改造前问题、采用的方案、复扫变化或想咨询的问题"
+              rows={4}
+            />
+          </label>
+          <div className="composer-media-row">
+            <label className="image-upload-button">
+              <ImagePlus size={17} />
+              {draftImageData ? "更换图片" : "添加图片"}
+              <input type="file" accept="image/*" onChange={handleDraftImage} />
+            </label>
+            {draftImageData && <img src={draftImageData} alt="待发布图片预览" />}
+          </div>
+          {draftError && <p className="composer-error" role="alert">{draftError}</p>}
+          <div className="composer-actions">
+            <button className="secondary-button" onClick={closeComposer}>
               取消
             </button>
-            <button className="primary-button" onClick={publishPost}>
+            <button className="primary-button" onClick={publishPost} disabled={!canPublish}>
               发布
               <Send size={16} />
             </button>
@@ -1380,12 +2052,7 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
 
       <div className="feed-list">
         {visiblePosts.map((post) => {
-          const hasRescan = typeof post.beforeRisk === "number" && typeof post.afterRisk === "number";
-          const delta = hasRescan
-            ? {
-                value: post.afterRisk - post.beforeRisk
-              }
-            : null;
+          const hasRescan = post.rescanStatus === "复扫完成";
           return (
             <article className="feed-post" key={post.id}>
               <header className="feed-author">
@@ -1399,11 +2066,21 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
               {post.images?.length > 0 && (
                 <div className={`post-image-grid count-${Math.min(post.images.length, 2)}`}>
                   {post.images.slice(0, 2).map((imageUrl, imageIndex) => (
-                    <span className="post-image-frame" key={imageUrl} style={{ "--image": `url(${assetUrl(imageUrl)})` }}>
+                    <span
+                      className="post-image-frame"
+                      key={imageUrl}
+                      style={{
+                        "--image": `url(${assetUrl(imageUrl)})`,
+                        aspectRatio: post.imageAspects?.[imageIndex]
+                      }}
+                    >
                       <img
                         src={assetUrl(imageUrl)}
                         alt={post.imageAlts?.[imageIndex] ?? `${post.title}配图`}
-                        style={{ objectPosition: post.imagePositions?.[imageIndex] ?? "center" }}
+                        style={{
+                          objectPosition: post.imagePositions?.[imageIndex] ?? "center",
+                          objectFit: post.imageFits?.[imageIndex] ?? "cover"
+                        }}
                       />
                     </span>
                   ))}
@@ -1411,15 +2088,11 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
               )}
               <h3>{post.title}</h3>
               {hasRescan ? (
-                <div className="before-after compact">
+                <div className="rescan-state">
+                  <CheckCircle2 size={17} />
                   <div>
-                    <small>改造前</small>
-                    <strong>{post.beforeRisk}</strong>
-                  </div>
-                  <ArrowRight size={17} />
-                  <div>
-                    <small>复扫后</small>
-                    <strong>{post.afterRisk}</strong>
+                    <strong>已完成改造后复扫</strong>
+                    <span>具体变化以改造后的新评估结果为准</span>
                   </div>
                 </div>
               ) : (
@@ -1428,7 +2101,24 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
                   <span>待社区回复或人工复核</span>
                 </div>
               )}
-              {delta && <div className="delta-line">安全分提升 {delta.value} 分</div>}
+              {hasRescan && post.safetyComparison && (
+                <div
+                  className="rescan-score-comparison"
+                  aria-label={`安全分由 ${post.safetyComparison.before} 提升至 ${post.safetyComparison.after}`}
+                >
+                  <span>
+                    <small>改造前</small>
+                    <strong>{post.safetyComparison.before}</strong>
+                  </span>
+                  <ArrowRight size={18} />
+                  <span className="rescan-score-after">
+                    <small>复扫后</small>
+                    <strong>{post.safetyComparison.after}</strong>
+                  </span>
+                  <em>+{post.safetyComparison.after - post.safetyComparison.before}</em>
+                  <small className="rescan-score-note">安全分越高越安全</small>
+                </div>
+              )}
               <p>{post.content}</p>
               <div className="action-list compact">
                 {post.actions.map((action) => (
@@ -1439,15 +2129,15 @@ function CommunityScreen({ communityFeed, setCommunityFeed, setActiveEntrance })
                 ))}
               </div>
               <footer className="post-actions">
-                <button onClick={() => updatePost(post.id, (item) => ({ ...item, likes: item.likes + 1 }))}>
+                <button aria-label={`点赞 ${post.likes}`} onClick={() => updatePost(post.id, (item) => ({ ...item, likes: item.likes + 1 }))}>
                   <Heart size={16} />
                   {post.likes}
                 </button>
-                <button onClick={() => updatePost(post.id, (item) => ({ ...item, comments: item.comments + 1 }))}>
+                <button aria-label={`评论 ${post.comments}`} onClick={() => updatePost(post.id, (item) => ({ ...item, comments: item.comments + 1 }))}>
                   <MessageSquare size={16} />
                   {post.comments}
                 </button>
-                <button onClick={() => updatePost(post.id, (item) => ({ ...item, saves: item.saves + 1 }))}>
+                <button aria-label={`收藏 ${post.saves}`} onClick={() => updatePost(post.id, (item) => ({ ...item, saves: item.saves + 1 }))}>
                   <Bookmark size={16} />
                   {post.saves}
                 </button>
@@ -1479,18 +2169,31 @@ function formatPostTime(publishedAt) {
 
 function ProfilePanel({ profile, setProfile }) {
   const [editing, setEditing] = useState(false);
-  const parsedAge = Number.parseInt(profile.age, 10);
+  const [draftProfile, setDraftProfile] = useState(profile);
+  const parsedAge = Number.parseInt(draftProfile.age, 10);
   const displayAge = Number.isFinite(parsedAge) ? parsedAge : 75;
-  const profileReady = [profile.age, profile.living, profile.mobility, profile.night].some((value) => value !== "待确认");
+  const profileReady = isProfileComplete(profile);
   const profileSummary = profileReady
-    ? `${profile.age}岁｜${profile.living}｜${profile.night}｜${profile.mobility}`
+    ? `${profile.age}岁｜${profile.mobility}｜${profile.assistance}`
     : "请确认老人情况";
+  const openEditor = () => {
+    setDraftProfile(profile);
+    setEditing(true);
+  };
+  const cancelEditing = () => {
+    setDraftProfile(profile);
+    setEditing(false);
+  };
   const updateProfile = (field, value) => {
-    setProfile((current) => ({ ...current, [field]: value }));
+    setDraftProfile((current) => ({ ...current, [field]: value }));
   };
   const updateAge = (delta) => {
     const nextAge = Math.min(100, Math.max(55, displayAge + delta));
     updateProfile("age", String(nextAge));
+  };
+  const saveProfile = () => {
+    setProfile(commitProfileDraft(draftProfile));
+    setEditing(false);
   };
 
   return (
@@ -1500,14 +2203,15 @@ function ProfilePanel({ profile, setProfile }) {
           <span>本次评估对象</span>
           <strong>{profileSummary}</strong>
         </div>
-        <button type="button" onClick={() => setEditing((value) => !value)}>
+        <button type="button" onClick={editing ? cancelEditing : openEditor}>
           <Edit3 size={15} />
-          {editing ? "收起" : "确认/修改"}
+          {editing ? "取消修改" : "确认/修改"}
         </button>
       </header>
       <p>
         {profileReady ? `${profile.notes}。重点关注：${profile.focus}。` : "填写后将用于调整风险提示重点。"}
       </p>
+      <small className="profile-source-note">用户主动确认 · 不采集生理传感数据</small>
 
       {editing && (
         <div className="profile-form">
@@ -1525,7 +2229,7 @@ function ProfilePanel({ profile, setProfile }) {
           </div>
           <label>
             <span>居住情况</span>
-            <select value={profile.living} onChange={(event) => updateProfile("living", event.target.value)}>
+            <select value={draftProfile.living} onChange={(event) => updateProfile("living", event.target.value)}>
               <option>待确认</option>
               <option>独居</option>
               <option>与配偶同住</option>
@@ -1535,18 +2239,63 @@ function ProfilePanel({ profile, setProfile }) {
           </label>
           <label>
             <span>行动情况</span>
-            <select value={profile.mobility} onChange={(event) => updateProfile("mobility", event.target.value)}>
+            <select value={draftProfile.mobility} onChange={(event) => updateProfile("mobility", event.target.value)}>
               <option>待确认</option>
               <option>正常行走</option>
-              <option>起身较慢</option>
               <option>使用手杖</option>
               <option>使用助行器</option>
               <option>轮椅辅助</option>
+              <option>需他人协助</option>
+            </select>
+          </label>
+          <label>
+            <span>平衡状态</span>
+            <select value={draftProfile.balance} onChange={(event) => updateProfile("balance", event.target.value)}>
+              <option>待确认</option>
+              <option>平衡能力正常</option>
+              <option>平衡能力受限</option>
+            </select>
+          </label>
+          <label>
+            <span>近年跌倒情况</span>
+            <select value={draftProfile.fallHistory} onChange={(event) => updateProfile("fallHistory", event.target.value)}>
+              <option>待确认</option>
+              <option>未报告跌倒</option>
+              <option>有跌倒经历</option>
+            </select>
+          </label>
+          <label>
+            <span>视力情况</span>
+            <select value={draftProfile.vision} onChange={(event) => updateProfile("vision", event.target.value)}>
+              <option>待确认</option>
+              <option>日常视物正常</option>
+              <option>弱光下视物困难</option>
+              <option>视力明显受限</option>
+            </select>
+          </label>
+          <label>
+            <span>握力/支撑能力</span>
+            <select value={draftProfile.grip} onChange={(event) => updateProfile("grip", event.target.value)}>
+              <option>待确认</option>
+              <option>可稳定抓握</option>
+              <option>抓握力量较弱</option>
+              <option>起身需要借力</option>
+              <option>需他人提供支撑</option>
+            </select>
+          </label>
+          <label>
+            <span>是否需要辅助</span>
+            <select value={draftProfile.assistance} onChange={(event) => updateProfile("assistance", event.target.value)}>
+              <option>待确认</option>
+              <option>可独立完成</option>
+              <option>偶尔需要陪同</option>
+              <option>部分动作需辅助</option>
+              <option>多数动作需照护</option>
             </select>
           </label>
           <label>
             <span>夜间情况</span>
-            <select value={profile.night} onChange={(event) => updateProfile("night", event.target.value)}>
+            <select value={draftProfile.night} onChange={(event) => updateProfile("night", event.target.value)}>
               <option>待确认</option>
               <option>很少起夜</option>
               <option>偶尔起夜</option>
@@ -1555,8 +2304,19 @@ function ProfilePanel({ profile, setProfile }) {
             </select>
           </label>
           <label>
+            <span>本空间日均使用</span>
+            <select value={draftProfile.spaceUseFrequency} onChange={(event) => updateProfile("spaceUseFrequency", event.target.value)}>
+              <option>待确认</option>
+              <option>1 次/日</option>
+              <option>2 次/日</option>
+              <option>4 次/日</option>
+              <option>6 次/日</option>
+              <option>8 次/日</option>
+            </select>
+          </label>
+          <label>
             <span>重点关注</span>
-            <select value={profile.focus} onChange={(event) => updateProfile("focus", event.target.value)}>
+            <select value={draftProfile.focus} onChange={(event) => updateProfile("focus", event.target.value)}>
               <option>防跌倒与通行安全</option>
               <option>卫生间防跌倒</option>
               <option>起夜照明</option>
@@ -1567,11 +2327,16 @@ function ProfilePanel({ profile, setProfile }) {
           </label>
           <label>
             <span>补充情况</span>
-            <input value={profile.notes} onChange={(event) => updateProfile("notes", event.target.value)} />
+            <input
+              value={draftProfile.notes}
+              maxLength={inputLimits.profileNotes}
+              onChange={(event) => updateProfile("notes", event.target.value)}
+            />
           </label>
-          <button type="button" className="primary-button full" onClick={() => setEditing(false)}>
-            保存老人情况
-          </button>
+          <div className="profile-form-actions">
+            <button type="button" className="secondary-button" onClick={cancelEditing}>取消</button>
+            <button type="button" className="primary-button" onClick={saveProfile}>保存老人情况</button>
+          </div>
         </div>
       )}
     </section>
