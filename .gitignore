@@ -3,6 +3,10 @@ dist/
 .DS_Store
 *.log
 coverage/
+.env.local
+.env.*.local
+test-results/
+playwright-report/
 current-*.png
 current-*.jpg
 public/assets/*-audit-sheet.jpg

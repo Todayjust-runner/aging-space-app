@@ -1,0 +1,84 @@
+.score-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--safe-soft);
+  border-color: #d5e2d8;
+}
+.score-card svg {
+  color: var(--safe);
+}
+.score-card h2 {
+  font-size: 24px;
+  margin: 4px 0 0;
+}
+.score-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.score {
+  text-align: right;
+  display: grid;
+  gap: 3px;
+  color: var(--safe);
+}
+.score strong {
+  font-size: 54px;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.score span {
+  font-size: 12px;
+}
+.score-card.review {
+  background: var(--accent-soft);
+  border-color: #ecd7bf;
+}
+.review-label {
+  max-width: 110px;
+  font-size: 14px;
+  color: var(--accent);
+}
+.risk-item,
+.review-details {
+  margin-top: 16px;
+}
+.risk-item ul,
+.review-details ul {
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.8;
+  font-size: 14px;
+}
+.risk-advice {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.risk-advice strong {
+  font-size: 14px;
+  color: var(--accent);
+}
+.risk-advice p {
+  margin-bottom: 0;
+}
+.analysis-state {
+  padding: 60px 24px;
+  text-align: center;
+}
+.analysis-state > svg {
+  color: var(--accent);
+}
+.spinner {
+  animation: spin 1.4s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

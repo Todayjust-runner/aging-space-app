@@ -1,9 +1,6 @@
-name: Deploy GitHub Pages
+name: Publish sample preview manually
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -32,8 +29,11 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check types
+        run: npm run typecheck
+
       - name: Build for GitHub Pages
-        run: npm run build -- --base=/web-demo/
+        run: npm run build:mock -- --base=/aging-space-app/
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

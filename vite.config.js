@@ -5,9 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    strictPort: false
+    strictPort: false,
   },
   test: {
-    environment: "node"
-  }
+    environment: "node",
+    include: ["src/**/*.test.{js,ts,tsx}"],
+    setupFiles: ["./src/test/setup.ts"],
+  },
 });
